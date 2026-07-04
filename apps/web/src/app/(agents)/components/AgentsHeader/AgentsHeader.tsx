@@ -18,7 +18,14 @@ import {
 import { useIsMobile } from "@rox/ui/hooks/use-mobile";
 import { toast } from "@rox/ui/sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronDown, LogOut } from "lucide-react";
+import {
+	Check,
+	ChevronDown,
+	CreditCard,
+	LogOut,
+	Settings,
+	User,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
@@ -249,6 +256,31 @@ export function AgentsHeader() {
 							<div className="px-2 py-1">{identityCard}</div>
 						) : null}
 						<div className="my-1 h-px bg-border" />
+						<Link
+							href="/settings/identity"
+							className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
+							onClick={() => setDrawerOpen(false)}
+						>
+							<User className="size-4" />
+							<span>Профиль</span>
+						</Link>
+						<Link
+							href="/settings/organization"
+							className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
+							onClick={() => setDrawerOpen(false)}
+						>
+							<Settings className="size-4" />
+							<span>Настройки организации</span>
+						</Link>
+						<Link
+							href="/settings/subscription"
+							className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
+							onClick={() => setDrawerOpen(false)}
+						>
+							<CreditCard className="size-4" />
+							<span>Подписка</span>
+						</Link>
+						<div className="my-1 h-px bg-border" />
 						{organizations && organizations.length > 1 && (
 							<>
 								<p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
@@ -313,6 +345,25 @@ export function AgentsHeader() {
 				</DropdownMenuLabel>
 				{identityCard ? <div className="px-1 py-1">{identityCard}</div> : null}
 				<DropdownMenuSeparator />
+				<DropdownMenuItem asChild className="cursor-pointer gap-2">
+					<Link href="/settings/identity">
+						<User className="size-4" />
+						<span>Профиль</span>
+					</Link>
+				</DropdownMenuItem>
+				<DropdownMenuItem asChild className="cursor-pointer gap-2">
+					<Link href="/settings/organization">
+						<Settings className="size-4" />
+						<span>Настройки организации</span>
+					</Link>
+				</DropdownMenuItem>
+				<DropdownMenuItem asChild className="cursor-pointer gap-2">
+					<Link href="/settings/subscription">
+						<CreditCard className="size-4" />
+						<span>Подписка</span>
+					</Link>
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
 				{organizations && organizations.length > 1 && (
 					<>
 						<DropdownMenuSub>
@@ -370,8 +421,12 @@ export function AgentsHeader() {
 
 	return (
 		<header className="sticky top-0 z-40 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-			<div className="mx-auto flex h-12 w-full items-center justify-between px-4">
-				<Link href="/agents" aria-label="Перейти на главную">
+			<div className="mx-auto flex h-12 w-full items-center justify-between gap-3 px-4">
+				<Link
+					href="/agents"
+					aria-label="Перейти на главную"
+					className="shrink-0"
+				>
 					<svg
 						width="282"
 						height="46"
@@ -389,11 +444,11 @@ export function AgentsHeader() {
 					</svg>
 				</Link>
 
-				<nav className="hidden items-center gap-1 sm:flex">
+				<nav className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto lg:flex">
 					{navItems.map((item) => {
 						const isActive =
 							item.href === "/agents"
-								? pathname === "/agents" || pathname.startsWith("/agents/")
+								? pathname === "/agents"
 								: pathname.startsWith(item.href);
 
 						return (

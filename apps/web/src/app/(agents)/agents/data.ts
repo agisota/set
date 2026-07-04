@@ -14,6 +14,13 @@ import {
 	type SessionDashboardUsageRow,
 } from "./session-dashboard";
 
+export type AgentsSubscriptionSummary = {
+	planName: string;
+	status: "active" | "unavailable";
+	balanceRox: string | null;
+	updatedAt: Date | null;
+};
+
 export type AgentsDashboardData = {
 	sessions: SessionDashboardSummary[];
 	totals: {
@@ -22,6 +29,7 @@ export type AgentsDashboardData = {
 		toolCalls: number;
 		activeSessions: number;
 	};
+	subscription: AgentsSubscriptionSummary;
 };
 
 type UsageRowWithSession = SessionDashboardUsageRow & {
@@ -30,7 +38,16 @@ type UsageRowWithSession = SessionDashboardUsageRow & {
 
 export async function loadAgentsDashboardData(): Promise<AgentsDashboardData> {
 	const trpc = await api();
-	const payload = await trpc.chat.listSessions.query();
+	const [payload, balance] = await Promise.all([
+		trpc.chat.listSessions.query(),
+		trpc.economy.balance.query().catch((error) => {
+			console.error(
+				"[loadAgentsDashboardData] failed to load Rox balance",
+				error,
+			);
+			return null;
+		}),
+	]);
 	const usageBySession = groupUsageBySession(payload.usageRequests);
 	const sessions = payload.sessions.map((session) =>
 		buildSessionDashboardSummary(session, usageBySession.get(session.id) ?? []),
@@ -52,6 +69,12 @@ export async function loadAgentsDashboardData(): Promise<AgentsDashboardData> {
 				0,
 			),
 			activeSessions: sessions.length,
+		},
+		subscription: {
+			planName: "Rox Balance",
+			status: balance ? "active" : "unavailable",
+			balanceRox: balance?.balanceRox ?? null,
+			updatedAt: balance?.updatedAt ?? null,
 		},
 	};
 }

@@ -67,6 +67,7 @@ export function ScrambleLanding() {
 	// Reduced motion: render hints fully visible, no stagger/slide.
 	const hintsInitial = prefersReducedMotion ? "visible" : "hidden";
 	const hintItemVariant = prefersReducedMotion ? undefined : hintItemVariants;
+	const webUrl = process.env.NEXT_PUBLIC_WEB_URL ?? "http://localhost:3000";
 	const animationsRef = useRef<
 		Array<{ cancel?: () => void; revert?: () => void }>
 	>([]);
@@ -167,6 +168,9 @@ export function ScrambleLanding() {
 
 	return (
 		<main ref={containerRef} className="rox-anime rox-landing">
+			<a className="rox-landing__cabinet-link" href={`${webUrl}/agents`}>
+				Личный кабинет
+			</a>
 			<OrchestrationField />
 
 			<section className="rox-hero">
