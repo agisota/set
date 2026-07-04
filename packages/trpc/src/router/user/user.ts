@@ -425,7 +425,7 @@ export const userRouter = {
 						.update(users)
 						.set({ onboardedAt: completedAt, onboardingProgress: next })
 						.where(eq(users.id, ctx.session.user.id))
-						.returning();
+						.returning(productionSafeUserReturning);
 
 					return updatedUser;
 				});
@@ -471,7 +471,7 @@ export const userRouter = {
 					.update(users)
 					.set({ onboardedAt: completedAt, onboardingProgress: next })
 					.where(eq(users.id, ctx.session.user.id))
-					.returning();
+					.returning(productionSafeUserReturning);
 				return updatedUser;
 			});
 		} catch (error) {

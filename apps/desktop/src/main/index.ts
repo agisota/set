@@ -152,6 +152,12 @@ export function focusMainWindow(): void {
 			mainWindow.restore();
 		}
 		mainWindow.show();
+		mainWindow.moveTop();
+		if (process.platform === "darwin") {
+			app.focus({ steal: true });
+		} else {
+			app.focus();
+		}
 		mainWindow.focus();
 	} else {
 		// Triggers window creation via makeAppSetup's activate handler

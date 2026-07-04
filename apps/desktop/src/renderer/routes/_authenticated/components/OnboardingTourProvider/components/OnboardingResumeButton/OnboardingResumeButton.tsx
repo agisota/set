@@ -10,8 +10,12 @@ export function OnboardingResumeButton({
 	onResume,
 }: OnboardingResumeButtonProps) {
 	return (
-		<Button className="fixed bottom-4 left-4 z-50 shadow-lg" onClick={onResume}>
-			Продолжить onboarding · {percent}%
+		<Button
+			className="no-drag pointer-events-auto fixed left-3 bottom-[calc(env(safe-area-inset-bottom)+22rem)] z-[60] max-w-[min(18rem,calc(100vw-1.5rem))] shadow-lg"
+			size="sm"
+			onClick={onResume}
+		>
+			Продолжить онбординг · {percent}%
 		</Button>
 	);
 }

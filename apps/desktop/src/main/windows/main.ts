@@ -96,6 +96,18 @@ const forceRepaint = (win: BrowserWindow) => {
 	}, 32);
 };
 
+const focusAppWindow = (win: BrowserWindow) => {
+	if (win.isDestroyed()) return;
+	win.show();
+	win.moveTop();
+	if (PLATFORM.IS_MAC) {
+		app.focus({ steal: true });
+	} else {
+		app.focus();
+	}
+	win.focus();
+};
+
 // GPU process restarts don't repaint existing compositor layers automatically.
 app.on("child-process-gone", (_event, details) => {
 	if (details.type === "GPU") {
@@ -136,7 +148,7 @@ export async function MainWindow() {
 		y: initialBounds.y,
 		minWidth: 400,
 		minHeight: 400,
-		show: false,
+		show: isDev,
 		...glassOptions,
 		center: initialBounds.center,
 		movable: true,
@@ -300,6 +312,27 @@ export async function MainWindow() {
 	let initialized = false;
 	let hasCompletedFirstLoad = false;
 	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+	let initialShowTimeout: ReturnType<typeof setTimeout> | null = null;
+	const showInitialWindow = (reason: string) => {
+		if ((hasCompletedFirstLoad && window.isVisible()) || window.isDestroyed()) {
+			return;
+		}
+		if (initialShowTimeout) {
+			clearTimeout(initialShowTimeout);
+			initialShowTimeout = null;
+		}
+		if (initialBounds.isMaximized && !window.isMaximized()) {
+			window.maximize();
+		}
+		focusAppWindow(window);
+		log.info("[main-window] Initial window shown", {
+			reason,
+			visible: window.isVisible(),
+			url: window.webContents.getURL(),
+		});
+		initialized = true;
+		hasCompletedFirstLoad = true;
+	};
 	const debouncedSave = () => {
 		if (!initialized || window.isDestroyed()) return;
 		if (saveTimeout) clearTimeout(saveTimeout);
@@ -338,15 +371,49 @@ export async function MainWindow() {
 			window.webContents.setZoomLevel(persistedZoomLevel);
 		}
 
-		if (!hasCompletedFirstLoad) {
-			if (initialBounds.isMaximized) {
-				window.maximize();
-			}
-			window.show();
-			initialized = true;
-			hasCompletedFirstLoad = true;
-		}
+		showInitialWindow("did-finish-load");
 	});
+
+	window.webContents.on("dom-ready", () => {
+		logger.info("[main-window] Renderer DOM ready");
+		if (persistedZoomLevel !== undefined) {
+			window.webContents.setZoomLevel(persistedZoomLevel);
+		}
+		showInitialWindow("dom-ready");
+	});
+
+	window.once("ready-to-show", () => {
+		showInitialWindow("ready-to-show");
+	});
+
+	if (!isDev) {
+		setTimeout(() => {
+			if (window.isDestroyed() || window.webContents.isLoading()) return;
+			if (persistedZoomLevel !== undefined) {
+				window.webContents.setZoomLevel(persistedZoomLevel);
+			}
+			showInitialWindow("production-startup-guard");
+		}, 500);
+	}
+
+	initialShowTimeout = setTimeout(() => {
+		if (hasCompletedFirstLoad || window.isDestroyed()) return;
+		logger.warn("[main-window] Showing window before renderer load completion");
+		if (persistedZoomLevel !== undefined) {
+			window.webContents.setZoomLevel(persistedZoomLevel);
+		}
+		showInitialWindow("load-timeout");
+	}, 4000);
+
+	if (!window.webContents.isLoading()) {
+		logger.info(
+			"[main-window] Renderer load completed before show handler setup",
+		);
+		if (persistedZoomLevel !== undefined) {
+			window.webContents.setZoomLevel(persistedZoomLevel);
+		}
+		showInitialWindow("already-loaded");
+	}
 
 	window.webContents.on(
 		"did-fail-load",
