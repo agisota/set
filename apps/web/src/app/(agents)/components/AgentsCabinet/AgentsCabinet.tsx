@@ -15,6 +15,8 @@ import Link from "next/link";
 import type React from "react";
 
 import type { AgentsDashboardData } from "../../agents/data";
+import { FeatureInventoryCard } from "./FeatureInventoryCard";
+import { SubscriptionCard } from "./SubscriptionCard";
 
 type AgentsCabinetProps = {
 	userName: string;
@@ -83,6 +85,11 @@ export function AgentsCabinet({ userName, data }: AgentsCabinetProps) {
 					label="Tool calls"
 					value={formatNumber(data.totals.toolCalls)}
 				/>
+			</section>
+
+			<section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+				<FeatureInventoryCard />
+				<SubscriptionCard subscription={data.subscription} />
 			</section>
 
 			<section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">

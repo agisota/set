@@ -3,6 +3,7 @@
 import { animate, scrambleText } from "animejs";
 import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { useEffect, useRef } from "react";
+import { env } from "@/env";
 import {
 	HERO_BRAND_WORDMARK,
 	HERO_LLM_TERM,
@@ -67,6 +68,7 @@ export function ScrambleLanding() {
 	// Reduced motion: render hints fully visible, no stagger/slide.
 	const hintsInitial = prefersReducedMotion ? "visible" : "hidden";
 	const hintItemVariant = prefersReducedMotion ? undefined : hintItemVariants;
+	const webUrl = env.NEXT_PUBLIC_WEB_URL;
 	const animationsRef = useRef<
 		Array<{ cancel?: () => void; revert?: () => void }>
 	>([]);
@@ -167,6 +169,9 @@ export function ScrambleLanding() {
 
 	return (
 		<main ref={containerRef} className="rox-anime rox-landing">
+			<a className="rox-landing__cabinet-link" href={`${webUrl}/agents`}>
+				Личный кабинет
+			</a>
 			<OrchestrationField />
 
 			<section className="rox-hero">
