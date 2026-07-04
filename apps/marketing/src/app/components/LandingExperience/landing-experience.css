@@ -781,13 +781,6 @@
 	.rox-landing {
 		--rox-feature-gap: clamp(28px, 4.5vh, 38px);
 	}
-	.rox-landing__cabinet-link {
-		top: max(12px, env(safe-area-inset-top));
-		right: max(12px, env(safe-area-inset-right));
-		min-height: 34px;
-		padding: 0 12px;
-		font-size: 0.78rem;
-	}
 	.rox-hero {
 		padding: 56px 20px 128px;
 	}
@@ -996,6 +989,16 @@
 	background: rgba(255, 178, 108, 0.11);
 	color: rgba(255, 248, 239, 0.98);
 	outline: none;
+}
+
+@media (max-width: 720px) {
+	.rox-landing__cabinet-link {
+		top: max(12px, env(safe-area-inset-top));
+		right: max(12px, env(safe-area-inset-right));
+		min-height: 34px;
+		padding: 0 12px;
+		font-size: 0.78rem;
+	}
 }
 
 .rox-landing__hero-cta {

@@ -33,6 +33,16 @@ import { useState } from "react";
 import { useTRPC } from "@/trpc/react";
 import { navItems } from "./navItems";
 
+const settingsNavItems = [
+	{ href: "/settings/identity", icon: User, label: "Профиль" },
+	{
+		href: "/settings/organization",
+		icon: Settings,
+		label: "Настройки организации",
+	},
+	{ href: "/settings/subscription", icon: CreditCard, label: "Подписка" },
+] as const;
+
 export function AgentsHeader() {
 	const { data: session } = authClient.useSession();
 	const router = useRouter();
@@ -256,30 +266,17 @@ export function AgentsHeader() {
 							<div className="px-2 py-1">{identityCard}</div>
 						) : null}
 						<div className="my-1 h-px bg-border" />
-						<Link
-							href="/settings/identity"
-							className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
-							onClick={() => setDrawerOpen(false)}
-						>
-							<User className="size-4" />
-							<span>Профиль</span>
-						</Link>
-						<Link
-							href="/settings/organization"
-							className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
-							onClick={() => setDrawerOpen(false)}
-						>
-							<Settings className="size-4" />
-							<span>Настройки организации</span>
-						</Link>
-						<Link
-							href="/settings/subscription"
-							className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
-							onClick={() => setDrawerOpen(false)}
-						>
-							<CreditCard className="size-4" />
-							<span>Подписка</span>
-						</Link>
+						{settingsNavItems.map((item) => (
+							<Link
+								key={item.href}
+								href={item.href}
+								className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
+								onClick={() => setDrawerOpen(false)}
+							>
+								<item.icon className="size-4" />
+								<span>{item.label}</span>
+							</Link>
+						))}
 						<div className="my-1 h-px bg-border" />
 						{organizations && organizations.length > 1 && (
 							<>
@@ -345,24 +342,18 @@ export function AgentsHeader() {
 				</DropdownMenuLabel>
 				{identityCard ? <div className="px-1 py-1">{identityCard}</div> : null}
 				<DropdownMenuSeparator />
-				<DropdownMenuItem asChild className="cursor-pointer gap-2">
-					<Link href="/settings/identity">
-						<User className="size-4" />
-						<span>Профиль</span>
-					</Link>
-				</DropdownMenuItem>
-				<DropdownMenuItem asChild className="cursor-pointer gap-2">
-					<Link href="/settings/organization">
-						<Settings className="size-4" />
-						<span>Настройки организации</span>
-					</Link>
-				</DropdownMenuItem>
-				<DropdownMenuItem asChild className="cursor-pointer gap-2">
-					<Link href="/settings/subscription">
-						<CreditCard className="size-4" />
-						<span>Подписка</span>
-					</Link>
-				</DropdownMenuItem>
+				{settingsNavItems.map((item) => (
+					<DropdownMenuItem
+						key={item.href}
+						asChild
+						className="cursor-pointer gap-2"
+					>
+						<Link href={item.href}>
+							<item.icon className="size-4" />
+							<span>{item.label}</span>
+						</Link>
+					</DropdownMenuItem>
+				))}
 				<DropdownMenuSeparator />
 				{organizations && organizations.length > 1 && (
 					<>

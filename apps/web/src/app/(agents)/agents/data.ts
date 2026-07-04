@@ -21,6 +21,11 @@ export type AgentsSubscriptionSummary = {
 	updatedAt: Date | null;
 };
 
+type AgentsBalanceSummary = {
+	balanceRox: string;
+	updatedAt: Date;
+};
+
 export type AgentsDashboardData = {
 	sessions: SessionDashboardSummary[];
 	totals: {
@@ -36,11 +41,44 @@ type UsageRowWithSession = SessionDashboardUsageRow & {
 	chatSessionId: string | null;
 };
 
+type AgentsSessionsPayload = {
+	sessions: Parameters<typeof buildSessionDashboardSummary>[0][];
+	usageRequests: UsageRowWithSession[];
+};
+
+const emptySessionsPayload: AgentsSessionsPayload = {
+	sessions: [],
+	usageRequests: [],
+};
+
+export function buildSubscriptionSummary(
+	balance: AgentsBalanceSummary | null,
+): AgentsSubscriptionSummary {
+	return {
+		planName: "Rox Balance",
+		status: balance ? "active" : "unavailable",
+		balanceRox: balance?.balanceRox ?? null,
+		updatedAt: balance?.updatedAt ?? null,
+	};
+}
+
+async function withRetry<T>(operation: () => Promise<T>): Promise<T> {
+	try {
+		return await operation();
+	} catch (error) {
+		console.error("[loadAgentsDashboardData] retrying failed query", error);
+		return operation();
+	}
+}
+
 export async function loadAgentsDashboardData(): Promise<AgentsDashboardData> {
 	const trpc = await api();
 	const [payload, balance] = await Promise.all([
-		trpc.chat.listSessions.query(),
-		trpc.economy.balance.query().catch((error) => {
+		trpc.chat.listSessions.query().catch((error) => {
+			console.error("[loadAgentsDashboardData] failed to load sessions", error);
+			return emptySessionsPayload;
+		}),
+		withRetry(() => trpc.economy.balance.query()).catch((error) => {
 			console.error(
 				"[loadAgentsDashboardData] failed to load Rox balance",
 				error,
@@ -70,12 +108,7 @@ export async function loadAgentsDashboardData(): Promise<AgentsDashboardData> {
 			),
 			activeSessions: sessions.length,
 		},
-		subscription: {
-			planName: "Rox Balance",
-			status: balance ? "active" : "unavailable",
-			balanceRox: balance?.balanceRox ?? null,
-			updatedAt: balance?.updatedAt ?? null,
-		},
+		subscription: buildSubscriptionSummary(balance),
 	};
 }
 

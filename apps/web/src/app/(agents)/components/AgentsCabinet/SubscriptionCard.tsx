@@ -50,8 +50,8 @@ export function SubscriptionCard({ subscription }: SubscriptionCardProps) {
 				<div className="flex items-start gap-2 rounded-lg bg-muted/60 p-3 text-muted-foreground text-xs">
 					<RefreshCw className="mt-0.5 size-3.5 shrink-0" />
 					<span>
-						Платежный поток пока не подключен. Кнопка оставлена как локальный
-						макет для проверки кабинета.
+						Продление подписки появится здесь после включения платежного потока
+						для вашей организации.
 					</span>
 				</div>
 			</CardContent>
@@ -61,7 +61,7 @@ export function SubscriptionCard({ subscription }: SubscriptionCardProps) {
 
 function formatRox(value: string) {
 	const numeric = Number(value);
-	if (!Number.isFinite(numeric)) {
+	if (!Number.isFinite(numeric) || !Number.isSafeInteger(Math.trunc(numeric))) {
 		return value;
 	}
 

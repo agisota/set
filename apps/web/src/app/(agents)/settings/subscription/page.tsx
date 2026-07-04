@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { api } from "@/trpc/server";
+import { buildSubscriptionSummary } from "../../agents/data";
 import { SubscriptionCard } from "../../components/AgentsCabinet/SubscriptionCard";
 
 export const metadata: Metadata = {
@@ -24,14 +25,7 @@ export default async function SubscriptionSettingsPage() {
 					Текущий доступ, Rox-баланс и будущая точка продления подписки.
 				</p>
 			</header>
-			<SubscriptionCard
-				subscription={{
-					planName: "Rox Balance",
-					status: balance ? "active" : "unavailable",
-					balanceRox: balance?.balanceRox ?? null,
-					updatedAt: balance?.updatedAt ?? null,
-				}}
-			/>
+			<SubscriptionCard subscription={buildSubscriptionSummary(balance)} />
 		</div>
 	);
 }
