@@ -376,7 +376,7 @@ export function EmailRegistrationForm() {
 						</PopoverTrigger>
 						<PopoverContent
 							align="start"
-							className="w-[320px] border-white/10 bg-[#120d0a] p-4 shadow-2xl"
+							className="w-[min(320px,calc(100vw-2rem))] border-white/10 bg-[#120d0a] p-3 shadow-2xl sm:p-4"
 						>
 							<div className="mb-3 flex items-center gap-2">
 								<Button
@@ -504,7 +504,7 @@ export function EmailRegistrationForm() {
 									formatWeekdayName: (date) =>
 										date.toLocaleString("ru-RU", { weekday: "short" }),
 								}}
-								className="w-full rounded-md bg-transparent p-0 text-foreground [--cell-size:--spacing(9)]"
+								className="w-full rounded-md bg-transparent p-0 text-foreground [--cell-size:--spacing(8)] sm:[--cell-size:--spacing(9)]"
 								classNames={{
 									root: "w-full",
 									months: "w-full",

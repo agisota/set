@@ -4,6 +4,7 @@ import { validateHandle } from "@rox/shared/username";
 import { eq } from "drizzle-orm";
 
 import { apiError } from "@/lib/api-response";
+import { checkHandleRateLimit } from "../rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,15 @@ export async function GET(request: Request): Promise<Response> {
 			ok: false,
 			available: false,
 			status: "invalid",
+		});
+	}
+
+	const canCheckHandle = await checkHandleRateLimit(request, handle.normalized);
+	if (!canCheckHandle) {
+		return apiError("Слишком много проверок никнейма. Попробуйте позже.", 429, {
+			ok: false,
+			available: false,
+			status: "rate_limited",
 		});
 	}
 

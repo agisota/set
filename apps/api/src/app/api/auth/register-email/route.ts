@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { env } from "@/env";
 import { apiError } from "@/lib/api-response";
+import { checkRegisterEmailRateLimit } from "./rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +99,21 @@ export async function POST(request: Request): Promise<Response> {
 			ok: false,
 			status: "error",
 		});
+	}
+
+	const canRegister = await checkRegisterEmailRateLimit(
+		request,
+		parsed.data.email,
+	);
+	if (!canRegister) {
+		return apiError(
+			"Слишком много попыток регистрации. Попробуйте позже.",
+			429,
+			{
+				ok: false,
+				status: "error",
+			},
+		);
 	}
 
 	if (!checkBirthDate(parsed.data.birthDate)) {
