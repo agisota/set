@@ -22,6 +22,7 @@ export interface MicButtonProps {
 	onComplete?: (recording: Recording, locked: boolean) => void;
 	transcribing?: boolean;
 	disabled?: boolean;
+	disabledReason?: string;
 	/**
 	 * Receives imperative controls once mounted (and `null` on unmount). The
 	 * desktop edge uses this to bind `useHotkey("DICTATE", controls.toggle)`
@@ -43,6 +44,7 @@ export function MicButton({
 	onComplete,
 	transcribing,
 	disabled,
+	disabledReason,
 	onReady,
 }: MicButtonProps) {
 	const dictation = useDictation({ onComplete });
@@ -122,8 +124,8 @@ export function MicButton({
 			)}
 			<button
 				type="button"
-				aria-label="Диктовать"
-				title="Нажмите, чтобы диктовать, или удерживайте"
+				aria-label={disabledReason ?? "Диктовать"}
+				title={disabledReason ?? "Нажмите, чтобы диктовать, или удерживайте"}
 				onPointerDown={handlePointerDown}
 				onPointerMove={handlePointerMove}
 				onPointerUp={handlePointerUp}
@@ -133,7 +135,7 @@ export function MicButton({
 					dictation.isActive
 						? "bg-red-500/15 text-red-500"
 						: "bg-foreground/10 text-muted-foreground hover:bg-foreground/20",
-					disabled && "opacity-40",
+					disabled && "opacity-50 hover:bg-foreground/10",
 				)}
 			>
 				{transcribing ? (

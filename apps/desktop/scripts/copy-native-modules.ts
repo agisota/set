@@ -235,10 +235,15 @@ function findBunStoreFolderName(
 	if (!existsSync(bunStoreDir)) return null;
 	const entries = readdirSync(bunStoreDir);
 	const modulePrefix = `${moduleName.replace("/", "+")}@`;
+	const matches = entries.filter((entry) => entry.startsWith(modulePrefix));
 	const exactPrefix = `${modulePrefix}${version}`;
-	const exactMatch = entries.find((entry) => entry.startsWith(exactPrefix));
+	const exactMatch = matches.find((entry) => entry.startsWith(exactPrefix));
 	if (exactMatch) return exactMatch;
-	return entries.find((entry) => entry.startsWith(modulePrefix)) ?? null;
+	const satisfyingMatch = matches.find((entry) => {
+		const installedVersion = entry.slice(modulePrefix.length).split("+")[0];
+		return Boolean(installedVersion && satisfies(installedVersion, version));
+	});
+	return satisfyingMatch ?? matches[0] ?? null;
 }
 
 function copyModuleIfSymlink(
@@ -448,6 +453,239 @@ function copyDependencyForPackage(
 		nestedDependencyPath,
 		required,
 	);
+}
+
+function copyRootDependencyIntoPackage(
+	nodeModulesDir: string,
+	parentPackagePath: string,
+	parentPackageName: string,
+	dependencyName: string,
+	dependencyRange: string,
+): string | null {
+	const topLevelDependencyPath = join(nodeModulesDir, dependencyName);
+	let topLevelVersion = readInstalledModuleVersion(topLevelDependencyPath);
+	const nestedDependencyPath = join(
+		parentPackagePath,
+		"node_modules",
+		dependencyName,
+	);
+	const nestedVersion = readInstalledModuleVersion(nestedDependencyPath);
+
+	if (nestedVersion && satisfies(nestedVersion, dependencyRange)) {
+		const nestedStats = lstatSync(nestedDependencyPath);
+		if (!nestedStats.isSymbolicLink()) {
+			return nestedDependencyPath;
+		}
+	}
+
+	if (!topLevelVersion) {
+		copyModuleIfSymlink(nodeModulesDir, dependencyName, true);
+		topLevelVersion = readInstalledModuleVersion(topLevelDependencyPath);
+	}
+
+	if (topLevelVersion && satisfies(topLevelVersion, dependencyRange)) {
+		const sourcePath = realpathSync(topLevelDependencyPath);
+		rmSync(nestedDependencyPath, { recursive: true, force: true });
+		mkdirSync(dirname(nestedDependencyPath), { recursive: true });
+		cpSync(sourcePath, nestedDependencyPath, { recursive: true });
+		console.log(
+			`  ${parentPackageName}: copied ${dependencyName}@${topLevelVersion} into package-local node_modules`,
+		);
+		return nestedDependencyPath;
+	}
+
+	console.log(
+		`  ${parentPackageName}: top-level ${dependencyName}@${topLevelVersion ?? "missing"} does not satisfy ${dependencyRange}; materializing nested copy`,
+	);
+	copyExactModuleVersion(
+		nodeModulesDir,
+		dependencyName,
+		dependencyRange,
+		nestedDependencyPath,
+		true,
+	);
+	return existsSync(nestedDependencyPath) ? nestedDependencyPath : null;
+}
+
+function materializePackageProductionDependencies(
+	nodeModulesDir: string,
+	packagePath: string,
+	packageNameHint?: string,
+	visitedPackagePaths = new Set<string>(),
+): void {
+	let resolvedPackagePath: string;
+	try {
+		resolvedPackagePath = realpathSync(packagePath);
+	} catch {
+		return;
+	}
+	if (visitedPackagePaths.has(resolvedPackagePath)) return;
+	visitedPackagePaths.add(resolvedPackagePath);
+
+	const packageJsonPath = join(resolvedPackagePath, "package.json");
+	if (!existsSync(packageJsonPath)) return;
+
+	type PackageJson = {
+		dependencies?: Record<string, string>;
+		name?: string;
+	};
+	const packageJson = JSON.parse(
+		readFileSync(packageJsonPath, "utf8"),
+	) as PackageJson | null;
+	if (!packageJson) return;
+
+	const packageName =
+		packageJson.name ?? packageNameHint ?? resolvedPackagePath;
+	for (const [dependencyName, dependencyRange] of Object.entries(
+		packageJson.dependencies ?? {},
+	)) {
+		const nestedDependencyPath = copyRootDependencyIntoPackage(
+			nodeModulesDir,
+			resolvedPackagePath,
+			packageName,
+			dependencyName,
+			dependencyRange,
+		);
+		if (nestedDependencyPath) {
+			materializePackageProductionDependencies(
+				nodeModulesDir,
+				nestedDependencyPath,
+				dependencyName,
+				visitedPackagePaths,
+			);
+		}
+	}
+}
+
+function materializeNativeDependenciesForPackage(
+	nodeModulesDir: string,
+	packagePath: string,
+	packageNameHint?: string,
+): void {
+	let resolvedPackagePath: string;
+	try {
+		resolvedPackagePath = realpathSync(packagePath);
+	} catch {
+		return;
+	}
+
+	const packageJsonPath = join(resolvedPackagePath, "package.json");
+	if (!existsSync(packageJsonPath)) return;
+
+	type PackageJson = {
+		dependencies?: Record<string, string>;
+		name?: string;
+	};
+	const packageJson = JSON.parse(
+		readFileSync(packageJsonPath, "utf8"),
+	) as PackageJson;
+	const packageName =
+		packageJson.name ?? packageNameHint ?? resolvedPackagePath;
+	const nativeDependencies = Object.entries(
+		packageJson.dependencies ?? {},
+	).filter(([dependencyName]) =>
+		requiredMaterializedNodeModules.includes(dependencyName),
+	);
+
+	for (const [dependencyName, dependencyRange] of nativeDependencies) {
+		const nestedDependencyPath = copyRootDependencyIntoPackage(
+			nodeModulesDir,
+			resolvedPackagePath,
+			packageName,
+			dependencyName,
+			dependencyRange,
+		);
+		if (nestedDependencyPath) {
+			materializePackageProductionDependencies(
+				nodeModulesDir,
+				nestedDependencyPath,
+				dependencyName,
+			);
+		}
+	}
+}
+
+function materializeDesktopDependencyNativeDependencies(
+	nodeModulesDir: string,
+): void {
+	const desktopPackageJsonPath = join(
+		dirname(import.meta.dirname),
+		"package.json",
+	);
+	if (!existsSync(desktopPackageJsonPath)) return;
+
+	type DesktopPackageJson = {
+		dependencies?: Record<string, string>;
+	};
+	const desktopPackageJson = JSON.parse(
+		readFileSync(desktopPackageJsonPath, "utf8"),
+	) as DesktopPackageJson;
+	const dependencyNames = Object.keys(desktopPackageJson.dependencies ?? {});
+	if (dependencyNames.length === 0) return;
+
+	console.log(
+		"\nMaterializing native dependencies declared by desktop dependencies...",
+	);
+	for (const dependencyName of dependencyNames) {
+		materializeNativeDependenciesForPackage(
+			nodeModulesDir,
+			join(nodeModulesDir, dependencyName),
+			dependencyName,
+		);
+	}
+}
+
+function materializeWorkspacePackageNativeDependencies(
+	nodeModulesDir: string,
+): void {
+	const roxScopeDir = join(nodeModulesDir, "@rox");
+	if (!existsSync(roxScopeDir)) return;
+
+	console.log(
+		"\nMaterializing native dependencies declared by workspace packages...",
+	);
+	for (const entry of readdirSync(roxScopeDir)) {
+		const modulePath = join(roxScopeDir, entry);
+		let workspacePackagePath: string;
+		try {
+			workspacePackagePath = realpathSync(modulePath);
+		} catch {
+			continue;
+		}
+
+		const packageJsonPath = join(workspacePackagePath, "package.json");
+		if (!existsSync(packageJsonPath)) continue;
+
+		type WorkspacePackageJson = {
+			dependencies?: Record<string, string>;
+			name?: string;
+		};
+		const workspacePackageJson = JSON.parse(
+			readFileSync(packageJsonPath, "utf8"),
+		) as WorkspacePackageJson;
+		const workspacePackageName = workspacePackageJson.name ?? `@rox/${entry}`;
+		materializeNativeDependenciesForPackage(
+			nodeModulesDir,
+			workspacePackagePath,
+			workspacePackageName,
+		);
+	}
+}
+
+function materializeRuntimePackageProductionDependencies(
+	nodeModulesDir: string,
+): void {
+	console.log(
+		"\nMaterializing production dependencies declared by runtime modules...",
+	);
+	for (const moduleName of requiredMaterializedNodeModules) {
+		const modulePath = join(nodeModulesDir, moduleName);
+		materializePackageProductionDependencies(
+			nodeModulesDir,
+			modulePath,
+			moduleName,
+		);
+	}
 }
 
 /**
@@ -769,6 +1007,9 @@ function prepareNativeModules() {
 	for (const moduleName of requiredMaterializedNodeModules) {
 		copyModuleIfSymlink(nodeModulesDir, moduleName, true);
 	}
+	materializeRuntimePackageProductionDependencies(nodeModulesDir);
+	materializeDesktopDependencyNativeDependencies(nodeModulesDir);
+	materializeWorkspacePackageNativeDependencies(nodeModulesDir);
 
 	console.log("\nPreparing ast-grep platform package...");
 	copyAstGrepPlatformPackages(nodeModulesDir);

@@ -24,13 +24,13 @@ export function RouteTransition({
 }) {
 	const shouldAnimate = useShouldAnimate("decorative");
 	if (!shouldAnimate) {
-		return <div className="flex flex-1 min-h-0 min-w-0">{children}</div>;
+		return <div className="flex min-h-0 min-w-0 w-full flex-1">{children}</div>;
 	}
 	return (
 		<AnimatePresence mode="wait" initial={false}>
 			<motion.div
 				key={transitionKey}
-				className="flex flex-1 min-h-0 min-w-0"
+				className="flex min-h-0 min-w-0 w-full flex-1"
 				initial={{ opacity: 0, y: 6 }}
 				animate={{ opacity: 1, y: 0 }}
 				exit={{ opacity: 0, y: -4 }}

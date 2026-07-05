@@ -15,11 +15,11 @@ export const EXPERIMENTAL_FEATURE_CATEGORY_LABELS: Record<
 	string
 > = {
 	"agent-native": "Agent-Native",
-	templates: "Templates",
-	collaboration: "Collaboration",
-	live: "Live Rooms",
+	templates: "Шаблоны",
+	collaboration: "Совместная работа",
+	live: "Live-комнаты",
 	"project-os": "Project OS",
-	rooms: "Combined Workflows",
+	rooms: "Объединённые процессы",
 };
 
 export const EXPERIMENTAL_FEATURE_AVAILABILITIES = [
@@ -86,6 +86,7 @@ export interface ExperimentalFeatureState {
 	availability: ExperimentalFeatureAvailability;
 	reason?: string;
 	dependencies: readonly ExperimentalFeatureDependency[];
+	missingDependencies?: readonly ExperimentalFeatureDependency[];
 }
 
 export interface ResolveExperimentalFeatureStateOptions {
@@ -96,19 +97,19 @@ export interface ResolveExperimentalFeatureStateOptions {
 
 const AGENT_NATIVE_PROVIDER: ExperimentalFeatureDependency = {
 	id: "agent-native",
-	label: "Agent-Native provider",
+	label: "Провайдер Agent-Native",
 	kind: "provider",
 	required: true,
 	configurationHint:
-		"Configure Agent-Native API credentials or local endpoint.",
+		"Настройте ключи доступа Agent-Native или локальный адрес сервиса.",
 };
 
 const AGENT_NATIVE_TEMPLATES_PROVIDER: ExperimentalFeatureDependency = {
 	id: "agent-native-templates",
-	label: "Agent-Native template source",
+	label: "Источник шаблонов Agent-Native",
 	kind: "provider",
 	required: true,
-	configurationHint: "Configure an Agent-Native templates catalog endpoint.",
+	configurationHint: "Настройте адрес каталога шаблонов Agent-Native.",
 };
 
 const LIVEBLOCKS_PROVIDER: ExperimentalFeatureDependency = {
@@ -116,7 +117,7 @@ const LIVEBLOCKS_PROVIDER: ExperimentalFeatureDependency = {
 	label: "Liveblocks",
 	kind: "provider",
 	required: true,
-	configurationHint: "Configure Liveblocks public and secret keys.",
+	configurationHint: "Настройте публичный и секретный ключи Liveblocks.",
 };
 
 // `collaboration.threadsAsObjects` is durable on the native Rox object graph
@@ -131,7 +132,7 @@ const LIVEBLOCKS_PROVIDER_OPTIONAL: ExperimentalFeatureDependency = {
 	kind: "provider",
 	required: false,
 	configurationHint:
-		"Optional: configure Liveblocks keys to add realtime presence to threads.",
+		"Опционально: настройте ключи Liveblocks, чтобы добавить realtime-присутствие в обсуждения.",
 };
 
 const LIVEKIT_PROVIDER: ExperimentalFeatureDependency = {
@@ -139,7 +140,7 @@ const LIVEKIT_PROVIDER: ExperimentalFeatureDependency = {
 	label: "LiveKit",
 	kind: "provider",
 	required: true,
-	configurationHint: "Configure LiveKit URL, API key, and API secret.",
+	configurationHint: "Настройте URL LiveKit, ключ API и серверный секрет API.",
 };
 
 // Project OS is native on the Rox object graph (entities/edges), so Huly is an
@@ -153,7 +154,7 @@ const HULY_PROVIDER: ExperimentalFeatureDependency = {
 	kind: "provider",
 	required: false,
 	configurationHint:
-		"Optional: configure Huly workspace URL and API token to enable Huly import.",
+		"Опционально: настройте URL рабочего пространства Huly и API-токен, чтобы включить импорт.",
 };
 
 const GITHUB_PROVIDER: ExperimentalFeatureDependency = {
@@ -161,15 +162,33 @@ const GITHUB_PROVIDER: ExperimentalFeatureDependency = {
 	label: "GitHub",
 	kind: "provider",
 	required: false,
-	configurationHint: "Connect GitHub CLI or token for PR-linked workflows.",
+	configurationHint:
+		"Подключите GitHub CLI или токен для процессов, связанных с PR.",
 };
 
 const LOCAL_DESKTOP_RUNTIME: ExperimentalFeatureDependency = {
 	id: "desktop-runtime",
-	label: "Rox desktop runtime",
+	label: "Десктопный runtime Rox",
 	kind: "runtime",
 	required: true,
 };
+
+function formatMissingProviderReason(
+	dependencies: readonly ExperimentalFeatureDependency[],
+): string {
+	const dependencyNames = dependencies
+		.map((dependency) => dependency.label)
+		.join(", ");
+	const setupHints = dependencies
+		.map((dependency) => dependency.configurationHint)
+		.filter((hint): hint is string => Boolean(hint?.trim()));
+
+	return [
+		`Требуется настройка: ${dependencyNames}.`,
+		...setupHints,
+		"Откройте настройки соответствующего провайдера или интеграции и добавьте недостающую конфигурацию. Значения секретов здесь не показываются.",
+	].join(" ");
+}
 
 type FeatureSeed = Omit<
 	ExperimentalFeatureDefinition,
@@ -472,10 +491,10 @@ export const EXPERIMENTAL_FEATURES = [
 		},
 		{
 			id: "templates.agentOnboarding",
-			title: "Agent Onboarding Templates",
-			shortDescription: "Create a project with ready-to-run agent roles.",
+			title: "Шаблоны онбординга агентов",
+			shortDescription: "Создать проект с готовыми ролями агентов.",
 			longDescription:
-				"Provides template-driven onboarding for agent presets, prompts, commands, and default project workflows.",
+				"Добавляет онбординг из шаблонов для пресетов агентов, промптов, команд и стандартных проектных процессов.",
 			maturity: "preview",
 			implementationStatus: "stubbed",
 			dependencies: [AGENT_NATIVE_TEMPLATES_PROVIDER, LOCAL_DESKTOP_RUNTIME],
@@ -483,10 +502,10 @@ export const EXPERIMENTAL_FEATURES = [
 		},
 		{
 			id: "templates.dbMapper",
-			title: "Database Mapper Templates",
-			shortDescription: "Generate project data mappings from templates.",
+			title: "Маппинг данных из шаблона",
+			shortDescription: "Создать проектные маппинги данных из шаблонов.",
 			longDescription:
-				"Adds a template path for mapping external objects into Rox local and cloud data models before import.",
+				"Добавляет шаблонный путь для маппинга внешних объектов в локальные и облачные модели данных Rox перед импортом.",
 			maturity: "alpha",
 			implementationStatus: "planned",
 			dependencies: [AGENT_NATIVE_TEMPLATES_PROVIDER],
@@ -1086,6 +1105,232 @@ export const EXPERIMENTAL_FEATURE_IDS = EXPERIMENTAL_FEATURES.map(
 	(feature) => feature.id,
 ) as ExperimentalFeatureId[];
 
+export interface ExperimentalFeatureDisplayCopy {
+	title: string;
+	shortDescription: string;
+	longDescription: string;
+}
+
+const EXPERIMENTAL_FEATURE_TITLE_RU: Readonly<
+	Record<ExperimentalFeatureId, string>
+> = {
+	"agentNative.sourceMarketplace": "Маркетплейс источников",
+	"agentNative.screenContextBus": "Шина контекста экрана",
+	"agentNative.uiCommandRouter": "Маршрутизатор UI-команд",
+	"agentNative.embeddedSurfaces": "Встроенные поверхности агентов",
+	"agentNative.runReplay": "Повтор запуска",
+	"agentNative.permissions": "Разрешения агентов",
+	"agentNative.memoryBinding": "Привязка памяти",
+	"agentNative.a2aDelegation": "Делегирование агенту",
+	"agentNative.commandPalette": "Команды агентов в палитре",
+	"agentNative.sharedActionModel": "Единая модель действий",
+	"templates.marketplace": "Маркетплейс шаблонов",
+	"templates.previewSandbox": "Предпросмотр шаблона",
+	"templates.importWizard": "Импорт шаблонов",
+	"templates.forkVersioning": "Форки и версии шаблонов",
+	"templates.permissionsManifest": "Манифест разрешений",
+	"templates.agentOnboarding": "Шаблоны онбординга агентов",
+	"templates.dbMapper": "Маппинг данных из шаблона",
+	"templates.evals": "Проверки качества шаблонов",
+	"templates.seedGenerator": "Генератор стартовых данных",
+	"templates.skillCompiler": "Компилятор навыков",
+	"collaboration.presence": "Присутствие",
+	"collaboration.editor": "Совместный редактор",
+	"collaboration.threadsAsObjects": "Обсуждения как объекты",
+	"collaboration.inlineComments": "Inline-комментарии",
+	"collaboration.taskBoard": "Совместная доска задач",
+	"collaboration.canvas": "Совместный canvas",
+	"collaboration.aiToolbar": "AI-панель",
+	"collaboration.mentionsNotifications": "Упоминания и уведомления",
+	"collaboration.durableSnapshots": "Долговечные снимки",
+	"collaboration.agentParticipant": "Агент как участник",
+	"live.voiceRooms": "Голосовые комнаты",
+	"live.agentParticipant": "Live-агент в комнате",
+	"live.transcript": "Live-транскрипт",
+	"live.meetingSummary": "Итоги встречи",
+	"live.contextualDispatch": "Запуск из live-контекста",
+	"live.voiceCommands": "Голосовые команды",
+	"live.pushToTalkDesktop": "Кнопка разговора на desktop",
+	"live.customerCallCapture": "Захват клиентских звонков",
+	"live.multiAgentStandup": "Стендап с несколькими агентами",
+	"live.agentConsole": "Live-консоль агента",
+	"projectOs.hulyImport": "Импорт из Huly",
+	"projectOs.workspaceShell": "Оболочка Project OS",
+	"projectOs.issueBoard": "Доска задач",
+	"projectOs.roadmapObjects": "Объекты roadmap",
+	"projectOs.objectLinkedChat": "Чат, привязанный к объектам",
+	"projectOs.unifiedSearch": "Единый поиск",
+	"projectOs.meetingNotes": "Заметки встреч",
+	"projectOs.crmContacts": "CRM-контакты",
+	"projectOs.selfHostBridge": "Мост для self-host",
+	"projectOs.futureModules": "Будущие модули",
+	"rooms.templateLaunchpad": "Запуск комнаты из шаблона",
+	"rooms.agentWarRoom": "Комната агентов",
+	"rooms.productStudio": "Продуктовая студия",
+	"rooms.incidentRoom": "Комната инцидента",
+	"rooms.customerCallToRoadmap": "Звонок клиента в roadmap",
+	"rooms.multiAgentPlanningBoard": "Доска планирования с агентами",
+	"rooms.knowledgeCaptureLoop": "Цикл захвата знаний",
+	"rooms.codeReviewRoom": "Комната ревью кода",
+	"rooms.voiceToPr": "Голос в PR",
+	"rooms.operationsCommandCenter": "Операционный центр",
+};
+
+const CATEGORY_FEATURE_COPY_RU: Readonly<
+	Record<ExperimentalFeatureCategory, ExperimentalFeatureDisplayCopy>
+> = {
+	"agent-native": {
+		title: "Agent-Native",
+		shortDescription:
+			"Включает возможности Agent-Native для источников, команд, разрешений и памяти.",
+		longDescription:
+			"Экспериментальная поверхность Agent-Native. Она доступна только там, где есть реальный runtime или безопасная панель управления; если требуется провайдер, страница показывает, что именно нужно настроить, без значений секретов.",
+	},
+	templates: {
+		title: "Шаблоны",
+		shortDescription:
+			"Управляет созданием проектов, предпросмотром, манифестами разрешений и импортом шаблонов.",
+		longDescription:
+			"Экспериментальная поверхность шаблонов. Локальные шаблоны работают через desktop runtime, внешние каталоги требуют отдельной настройки источника шаблонов.",
+	},
+	collaboration: {
+		title: "Совместная работа",
+		shortDescription:
+			"Управляет присутствием, совместным редактированием, обсуждениями и общим canvas.",
+		longDescription:
+			"Экспериментальная поверхность совместной работы. Готовые нативные сценарии открываются без внешнего провайдера, сценарии realtime требуют Liveblocks.",
+	},
+	live: {
+		title: "Live-комнаты",
+		shortDescription:
+			"Управляет голосовыми комнатами, транскриптами, live-агентами и кнопкой разговора.",
+		longDescription:
+			"Экспериментальная live-поверхность. Голосовые сценарии требуют корректной настройки LiveKit; пока настройки нет, функции остаются видимыми здесь как диагностика, но не запускаются в продукте.",
+	},
+	"project-os": {
+		title: "Project OS",
+		shortDescription:
+			"Управляет графом объектов проекта, досками задач, поиском, контактами и roadmap.",
+		longDescription:
+			"Экспериментальная поверхность Project OS. Нативный граф Rox является основным источником данных; внешние системы вроде Huly подключаются только как опциональный импорт.",
+	},
+	rooms: {
+		title: "Объединённые процессы",
+		shortDescription:
+			"Управляет комнатами для шаблонов, планирования, incident response, ревью и live-операций.",
+		longDescription:
+			"Экспериментальная поверхность операционных комнат. Она объединяет шаблоны, агентов, live-контекст и объекты Project OS, но незавершённые сценарии остаются закрытыми вне этой панели.",
+	},
+};
+
+const EXPERIMENTAL_FEATURE_SURFACE_LABELS_RU: Readonly<Record<string, string>> =
+	{
+		"Agent activity": "Активность агента",
+		"Agent console": "Консоль агента",
+		"Agent context": "Контекст агента",
+		"Agent delegation": "Делегирование агентам",
+		"Agent details": "Карточка агента",
+		"Agent inbox": "Входящие агента",
+		"Agent launcher": "Запуск агента",
+		"Agent orchestration": "Оркестрация агентов",
+		"Agent run history": "История запусков агента",
+		"Agent settings": "Настройки агента",
+		"Agent tools": "Инструменты агента",
+		"Audit trail": "Аудит",
+		Canvas: "Canvas",
+		Chat: "Чат",
+		"CI hints": "Подсказки CI",
+		Comments: "Комментарии",
+		"Command palette": "Палитра команд",
+		"Command router": "Маршрутизатор команд",
+		"Customer evidence": "Клиентские доказательства",
+		"Data mapping": "Маппинг данных",
+		"Diff viewer": "Просмотр diff",
+		Docs: "Документы",
+		Editor: "Редактор",
+		"Editor surfaces": "Поверхности редактора",
+		"Global search": "Глобальный поиск",
+		"Global shortcuts": "Глобальные сочетания клавиш",
+		"Import wizard": "Мастер импорта",
+		Imports: "Импорты",
+		Integrations: "Интеграции",
+		Knowledge: "Знания",
+		"Live operations": "Live-операции",
+		"Markdown editor": "Markdown-редактор",
+		"Meeting notes": "Заметки встреч",
+		Navigation: "Навигация",
+		"New project": "Новый проект",
+		"New workspace": "Новое рабочее пространство",
+		Notifications: "Уведомления",
+		"Object details": "Детали объекта",
+		"Object graph": "Граф объектов",
+		Onboarding: "Онбординг",
+		"Operations dashboard": "Операционная панель",
+		Permissions: "Разрешения",
+		"Planning board": "Доска планирования",
+		"Preview panel": "Панель предпросмотра",
+		"Project dashboard": "Панель проекта",
+		"Project docs": "Документы проекта",
+		"Project OS": "Project OS",
+		"Project settings": "Настройки проекта",
+		"Project setup": "Настройка проекта",
+		"Prompt composer": "Поле промпта",
+		"Prompt editor": "Редактор промпта",
+		"Public shares": "Публичные ссылки",
+		"Pull request workflow": "Процесс pull request",
+		"Quality checks": "Проверки качества",
+		Roadmap: "Roadmap",
+		Rooms: "Комнаты",
+		"Review history": "История ревью",
+		"Review panel": "Панель ревью",
+		"Run guardrails": "Ограничения запуска",
+		"Run history": "История запусков",
+		Search: "Поиск",
+		"Security settings": "Настройки безопасности",
+		Settings: "Настройки",
+		"Skills library": "Библиотека навыков",
+		"Source picker": "Выбор источника",
+		"Sync status": "Статус синхронизации",
+		"Task board": "Доска задач",
+		"Task creation": "Создание задач",
+		"Task details": "Детали задачи",
+		"Task execution": "Исполнение задач",
+		"Task seeding": "Стартовые задачи",
+		"Task sidebar": "Сайдбар задачи",
+		Tasks: "Задачи",
+		Telemetry: "Телеметрия",
+		"Template details": "Детали шаблона",
+		"Template gallery": "Галерея шаблонов",
+		"Template install": "Установка шаблона",
+		Threads: "Обсуждения",
+		"Upgrade flow": "Обновление",
+		"Voice rooms": "Голосовые комнаты",
+		"Workspace actions": "Действия рабочего пространства",
+		"Workspace dashboard": "Панель рабочего пространства",
+		"Workspace header": "Шапка рабочего пространства",
+		"Workspace setup": "Настройка рабочего пространства",
+		"Workspace shell": "Оболочка рабочего пространства",
+		"Workspace sidebar": "Боковая панель рабочего пространства",
+	};
+
+export function getExperimentalFeatureDisplayCopy(
+	feature: ExperimentalFeatureDefinition,
+): ExperimentalFeatureDisplayCopy {
+	const categoryCopy = CATEGORY_FEATURE_COPY_RU[feature.category];
+	const title =
+		EXPERIMENTAL_FEATURE_TITLE_RU[feature.id as ExperimentalFeatureId] ??
+		feature.title;
+	return {
+		title,
+		shortDescription: `${title}: ${categoryCopy.shortDescription}`,
+		longDescription: `${title}. ${categoryCopy.longDescription}`,
+	};
+}
+
+export function formatExperimentalFeatureSurfaceLabel(surface: string): string {
+	return EXPERIMENTAL_FEATURE_SURFACE_LABELS_RU[surface] ?? surface;
+}
+
 export function isExperimentalFeatureId(
 	id: string,
 ): id is ExperimentalFeatureId {
@@ -1133,22 +1378,20 @@ export function resolveExperimentalFeatureState(
 
 	if (blocked) {
 		availability = "blocked";
-		reason = "Disabled by platform kill switch.";
+		reason = "Отключено глобальным переключателем безопасности.";
 	} else if (missingRequiredProviders.length > 0) {
 		availability = "needs_configuration";
-		reason = `Configure ${missingRequiredProviders
-			.map((dependency) => dependency.label)
-			.join(", ")} to use this feature.`;
+		reason = formatMissingProviderReason(missingRequiredProviders);
 	} else if (definition.implementationStatus !== "ready") {
 		availability = "not_implemented";
 		reason =
 			definition.implementationStatus === "stubbed"
-				? "The control plane is available; the product surface is still being connected."
-				: "This feature is planned and safely hidden outside Experiments.";
+				? "Панель управления уже доступна; продуктовая поверхность ещё подключается."
+				: "Функция запланирована и безопасно скрыта вне панели экспериментов.";
 	}
 
 	if (!preferredEnabled && !reason) {
-		reason = "Disabled in Settings > Experiments.";
+		reason = "Отключено в Настройки > Эксперименты.";
 	}
 
 	return {
@@ -1159,5 +1402,6 @@ export function resolveExperimentalFeatureState(
 		availability,
 		reason,
 		dependencies: definition.dependencies,
+		missingDependencies: missingRequiredProviders,
 	};
 }

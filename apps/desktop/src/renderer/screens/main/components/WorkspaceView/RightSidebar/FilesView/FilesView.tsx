@@ -547,7 +547,7 @@ export function FilesView() {
 	if (!worktreePath) {
 		return (
 			<div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-4">
-				No workspace selected
+				Рабочая область не выбрана
 			</div>
 		);
 	}

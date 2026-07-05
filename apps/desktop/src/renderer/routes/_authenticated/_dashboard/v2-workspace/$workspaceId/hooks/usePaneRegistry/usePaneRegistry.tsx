@@ -9,7 +9,7 @@ import { toast } from "@rox/ui/sonner";
 import { cn } from "@rox/ui/utils";
 import { workspaceTrpc } from "@rox/workspace-client";
 import { Circle, GitCompareArrows, Globe, MessageSquare } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import {
 	LuArrowDownToLine,
 	LuClipboard,
@@ -48,6 +48,7 @@ import type { TerminalLauncher } from "../useV2TerminalLauncher";
 import { BrowserPane, BrowserPaneToolbar } from "./components/BrowserPane";
 import { ChatPane } from "./components/ChatPane";
 import { ChatPaneTitle } from "./components/ChatPane/components/ChatPaneTitle";
+import { toAgentStartupFailureMessage } from "./components/ChatPane/components/WorkspaceChatInterface/utils/sendMessage";
 import { CommentPane } from "./components/CommentPane";
 import { CommentPaneHeaderExtras } from "./components/CommentPane/components/CommentPaneHeaderExtras";
 import { CommentPaneTitle } from "./components/CommentPane/components/CommentPaneTitle";
@@ -58,6 +59,14 @@ import { FilePaneHeaderExtras } from "./components/FilePane/components/FilePaneH
 import { TerminalPane } from "./components/TerminalPane";
 import { TerminalPaneIcon } from "./components/TerminalPane/components/TerminalPaneIcon";
 import { TerminalSessionDropdown } from "./components/TerminalPane/components/TerminalSessionDropdown";
+
+type CreateNewAgentSessionInput = {
+	configId: string;
+	placement: "split-pane" | "new-tab";
+	prompt: string;
+};
+
+type CreateNewAgentSessionResult = Promise<{ terminalId: string } | null>;
 
 function getFileName(filePath: string): string {
 	return getBaseName(filePath);
@@ -122,6 +131,9 @@ export function usePaneRegistry({
 	const clearShortcut = useHotkeyDisplay("CLEAR_TERMINAL").text;
 	const scrollToBottomShortcut = useHotkeyDisplay("SCROLL_TO_BOTTOM").text;
 	const workspaceTrpcUtils = workspaceTrpc.useUtils();
+	const createNewAgentSessionRef = useRef<
+		((input: CreateNewAgentSessionInput) => CreateNewAgentSessionResult) | null
+	>(null);
 	const { mutate: killTerminalSession, isPending: isKillingTerminalSession } =
 		workspaceTrpc.terminal.killSession.useMutation({
 			onSuccess: () => {
@@ -164,11 +176,7 @@ export function usePaneRegistry({
 	);
 
 	const createNewAgentSession = useCallback(
-		async (input: {
-			configId: string;
-			placement: "split-pane" | "new-tab";
-			prompt: string;
-		}): Promise<{ terminalId: string } | null> => {
+		async (input: CreateNewAgentSessionInput): CreateNewAgentSessionResult => {
 			try {
 				// Host pipeline bakes the prompt into the initialCommand using the
 				// agent's argv/stdin transport — no follow-up writeInput needed,
@@ -196,14 +204,28 @@ export function usePaneRegistry({
 				}
 				return { terminalId };
 			} catch (error) {
-				const description =
-					error instanceof Error ? error.message : "Unknown error";
-				toast.error("Couldn't start agent session", { description });
+				const rawMessage =
+					error instanceof Error ? error.message : "Неизвестная ошибка";
+				const startupFailureMessage = toAgentStartupFailureMessage(error);
+				toast.error("Не удалось запустить агента", {
+					description: startupFailureMessage ?? rawMessage,
+					...(startupFailureMessage
+						? {
+								action: {
+									label: "Повторить",
+									onClick: () => {
+										void createNewAgentSessionRef.current?.(input);
+									},
+								},
+							}
+						: {}),
+				});
 				return null;
 			}
 		},
 		[runAgent, store, workspaceId],
 	);
+	createNewAgentSessionRef.current = createNewAgentSession;
 
 	return useMemo<PaneRegistry<PaneViewerData>>(
 		() => ({

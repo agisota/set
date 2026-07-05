@@ -76,6 +76,25 @@ function AuthenticatedLayout() {
 	useAgentHookListener();
 	useUpdateListener();
 
+	const { data: fontSettings } =
+		electronTrpc.settings.getFontSettings.useQuery();
+	useEffect(() => {
+		const root = document.documentElement;
+		if (fontSettings?.uiFontFamily) {
+			root.style.setProperty("--rox-ui-font-family", fontSettings.uiFontFamily);
+		} else {
+			root.style.removeProperty("--rox-ui-font-family");
+		}
+		if (typeof fontSettings?.uiFontSize === "number") {
+			root.style.setProperty(
+				"--rox-ui-font-size",
+				`${fontSettings.uiFontSize}px`,
+			);
+		} else {
+			root.style.removeProperty("--rox-ui-font-size");
+		}
+	}, [fontSettings?.uiFontFamily, fontSettings?.uiFontSize]);
+
 	// Update workspace-run pane state on terminal exit
 	electronTrpc.notifications.subscribe.useSubscription(undefined, {
 		onData: (event) => {

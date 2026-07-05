@@ -2,7 +2,7 @@ import { Button } from "@rox/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@rox/ui/tooltip";
 import { eq } from "@tanstack/db";
 import { useLiveQuery } from "@tanstack/react-db";
-import { Search } from "lucide-react";
+import { ListChecks, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { LuFile, LuGitCompareArrows } from "react-icons/lu";
 import { useWorkspaceGitStatus } from "renderer/routes/_authenticated/_dashboard/v2-workspace/$workspaceId/providers/WorkspaceGitStatusProvider";
@@ -10,10 +10,10 @@ import { useCollections } from "renderer/routes/_authenticated/providers/Collect
 import { useSettings } from "renderer/stores/settings";
 import type { CommentPaneData, DiffFocusSide } from "../../types";
 import { FilesTab } from "./components/FilesTab";
+import { FusionTab } from "./components/FusionTab";
 import { PRActionHeader } from "./components/PRActionHeader";
 import { SidebarHeader } from "./components/SidebarHeader";
 import { useChangesTab } from "./hooks/useChangesTab";
-import { useGovernanceTab } from "./hooks/useGovernanceTab";
 import { type OpenChatFn, usePRFlowDispatch } from "./hooks/usePRFlowDispatch";
 import { usePRFlowState } from "./hooks/usePRFlowState";
 import { useReviewTab } from "./hooks/useReviewTab";
@@ -26,13 +26,13 @@ import type { SidebarTabDefinition } from "./types";
 // tooltip through `selectActionButton`, independent of this flag.
 const CREATE_PR_BUTTON_ENABLED = true;
 
-type SidebarTabId = "changes" | "files" | "review" | "governance";
+type SidebarTabId = "changes" | "files" | "review" | "management";
 
 const VALID_TAB_IDS: readonly SidebarTabId[] = [
 	"changes",
 	"files",
 	"review",
-	"governance",
+	"management",
 ];
 
 function isSidebarTabId(tab: string): tab is SidebarTabId {
@@ -157,11 +157,6 @@ export function WorkspaceSidebar({
 			: undefined,
 	});
 
-	const governanceTab = useGovernanceTab({
-		workspaceId,
-		onOpenChat: onOpenChat ?? (() => {}),
-	});
-
 	const { flowState, onRetry } = usePRFlowState(workspaceId);
 	const dispatch = usePRFlowDispatch({
 		onOpenChat: onOpenChat ?? (() => {}),
@@ -183,11 +178,18 @@ export function WorkspaceSidebar({
 		),
 	};
 
+	const managementTab: SidebarTabDefinition = {
+		id: "management",
+		label: "Управление",
+		icon: ListChecks,
+		content: <FusionTab workspaceId={workspaceId} onOpenChat={onOpenChat} />,
+	};
+
 	const tabs: SidebarTabDefinition[] = [
 		filesTab,
 		changesTab,
 		reviewTab,
-		governanceTab,
+		managementTab,
 	];
 	const activeTabDef = tabs.find((t) => t.id === activeTab);
 

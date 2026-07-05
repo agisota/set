@@ -6,7 +6,10 @@ import {
 	usePromptInputController,
 } from "@rox/ui/ai-elements/prompt-input";
 import type { ThinkingLevel } from "@rox/ui/ai-elements/thinking-toggle";
+import { toast } from "@rox/ui/sonner";
+import { blobToBase64, type Recording } from "@rox/ui/voice";
 import { workspaceTrpc } from "@rox/workspace-client";
+import { useQuery } from "@tanstack/react-query";
 import type { ChatStatus, FileUIPart } from "ai";
 import type React from "react";
 import type { ReactNode } from "react";
@@ -20,7 +23,8 @@ import type {
 	PermissionMode,
 } from "renderer/components/Chat/ChatInterface/types";
 import { useHotkeyDisplay } from "renderer/hotkeys";
-import { useComposerInsertTarget } from "renderer/routes/_authenticated/_dashboard/saved-prompts/lib/use-insert-prompt";
+import { electronTrpc } from "renderer/lib/electron-trpc";
+import { apiClient } from "renderer/routes/_authenticated/providers/CollectionsProvider/collections";
 import { ChatComposerControls } from "./components/ChatComposerControls";
 import { ChatInputDropZone } from "./components/ChatInputDropZone";
 import { ChatShortcuts } from "./components/ChatShortcuts";
@@ -42,23 +46,12 @@ interface ChatInputFooterProps {
 	setSelectedModel: React.Dispatch<React.SetStateAction<ModelOption | null>>;
 	modelSelectorOpen: boolean;
 	setModelSelectorOpen: React.Dispatch<React.SetStateAction<boolean>>;
-	/** Persisted selection id that failed to resolve; surfaces in the pill. */
 	unresolvedModelId?: string | null;
 	permissionMode: PermissionMode;
-	// Value-only setter so the store-backed `usePermissionModePreference` setter
-	// (and a plain `useState` dispatcher) both satisfy this prop. The composer
-	// only ever sets a concrete mode, never a functional updater.
 	setPermissionMode: (mode: PermissionMode) => void;
 	thinkingLevel: ThinkingLevel;
 	setThinkingLevel: (level: ThinkingLevel) => void;
 	slashCommands: SlashCommand[];
-	/**
-	 * Estimated tokens consumed by the current thread; drives the context-budget
-	 * HUD in the composer controls. Also feeds the F42 context-usage ring.
-	 */
-	usedTokens: number;
-	/** Selected model's context window in tokens (F42 ring). */
-	maxTokens?: number;
 	submitDisabled?: boolean;
 	renderAttachment?: (file: FileUIPart & { id: string }) => ReactNode;
 	onSubmitStart?: () => void;
@@ -73,6 +66,8 @@ interface ChatInputFooterProps {
 	isQuestionSubmitting?: boolean;
 	onQuestionRespond?: (questionId: string, answer: string) => Promise<void>;
 	onQuestionCancel?: () => void;
+	usedTokens?: number;
+	maxTokens?: number;
 }
 
 export function ChatInputFooter({
@@ -93,8 +88,6 @@ export function ChatInputFooter({
 	thinkingLevel,
 	setThinkingLevel,
 	slashCommands,
-	usedTokens,
-	maxTokens,
 	submitDisabled,
 	renderAttachment,
 	onSubmitStart,
@@ -105,13 +98,10 @@ export function ChatInputFooter({
 	isQuestionSubmitting,
 	onQuestionRespond,
 	onQuestionCancel,
+	usedTokens,
+	maxTokens,
 }: ChatInputFooterProps) {
 	useFocusPromptOnPane(isFocused);
-
-	// Subscribe to the saved-prompts insert seam so "Сохранённые промпты" can
-	// deliver a prompt straight into this live composer (and so the inserter
-	// knows an in-place target exists while this pane is mounted).
-	useComposerInsertTarget();
 
 	// Re-focus the editor when the question overlay dismisses.
 	const { textInput } = usePromptInputController();
@@ -136,6 +126,13 @@ export function ChatInputFooter({
 	}, []);
 
 	const trpcUtils = workspaceTrpc.useUtils();
+	const electronUtils = electronTrpc.useUtils();
+	const { data: voiceConfig } = useQuery({
+		queryKey: ["voice", "isConfigured"],
+		queryFn: () => apiClient.voice.isConfigured.query(),
+		staleTime: Number.POSITIVE_INFINITY,
+	});
+	const dictationConfigured = voiceConfig?.configured;
 	const searchFiles = useCallback(
 		async (query: string) => {
 			const { matches } = await trpcUtils.filesystem.searchFiles.fetch({
@@ -168,6 +165,43 @@ export function ChatInputFooter({
 			return onSend(modifiedMessage);
 		},
 		[linkedIssues, onSend],
+	);
+
+	const [transcribing, setTranscribing] = useState(false);
+	const handleDictationComplete = useCallback(
+		async (recording: Recording, locked: boolean) => {
+			setTranscribing(true);
+			try {
+				const audioBase64 = await blobToBase64(recording.blob);
+				const voiceAgentContext =
+					await electronUtils.settings.getVoiceAgentContext
+						.fetch()
+						.catch(() => "");
+				const result = await apiClient.voice.transcribe.mutate({
+					audioBase64,
+					mimeType: recording.mimeType,
+					durationMs: recording.durationMs,
+					voiceAgentContext: voiceAgentContext?.trim() || undefined,
+				});
+				const text = (result.processed?.ru || result.rawText || "").trim();
+				if (!text) {
+					toast.info("Не удалось распознать речь");
+					return;
+				}
+				if (locked) {
+					const prev = textInput.value;
+					textInput.setInput(prev ? `${prev} ${text}` : text);
+					textInput.focus();
+				} else {
+					void handleSend({ text, files: [] });
+				}
+			} catch {
+				toast.error("Ошибка расшифровки — запись сохранена для повтора");
+			} finally {
+				setTranscribing(false);
+			}
+		},
+		[textInput, handleSend, electronUtils],
 	);
 
 	return (
@@ -250,6 +284,9 @@ export function ChatInputFooter({
 									submitStatus={submitStatus}
 									submitDisabled={submitDisabled}
 									onStop={onStop}
+									onDictationComplete={handleDictationComplete}
+									dictationTranscribing={transcribing}
+									dictationConfigured={dictationConfigured}
 									usedTokens={usedTokens}
 									maxTokens={maxTokens}
 								/>

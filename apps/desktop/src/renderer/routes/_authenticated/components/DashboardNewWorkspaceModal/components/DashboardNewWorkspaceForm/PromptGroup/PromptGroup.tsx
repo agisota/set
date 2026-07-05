@@ -10,16 +10,20 @@ import {
 import { Button } from "@rox/ui/button";
 import { Input } from "@rox/ui/input";
 import { isEnterSubmit } from "@rox/ui/lib/keyboard";
+import { toast } from "@rox/ui/sonner";
 import { cn } from "@rox/ui/utils";
+import { blobToBase64, MicButton, type Recording } from "@rox/ui/voice";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GoIssueOpened } from "react-icons/go";
 import { LuGitPullRequest } from "react-icons/lu";
 import { SiLinear } from "react-icons/si";
 import { AgentHarnessStatusBadge } from "renderer/components/AgentHarnessStatusBadge";
 import { AgentSelect } from "renderer/components/AgentSelect";
+import { getDictationDisabledReason } from "renderer/components/Chat/ChatInterface/components/ChatInputFooter/components/ChatComposerControls/dictationAffordance";
 import { LinkedIssuePill } from "renderer/components/Chat/ChatInterface/components/ChatInputFooter/components/LinkedIssuePill";
 import { IssueLinkCommand } from "renderer/components/Chat/ChatInterface/components/IssueLinkCommand";
 import { HostStatusInline } from "renderer/components/HostStatusInline";
@@ -38,6 +42,8 @@ import {
 } from "renderer/hooks/useV2AgentChoices";
 import { PLATFORM } from "renderer/hotkeys";
 import { authClient } from "renderer/lib/auth-client";
+import { electronTrpc } from "renderer/lib/electron-trpc";
+import { apiClient } from "renderer/routes/_authenticated/providers/CollectionsProvider/collections";
 import { useLocalHostService } from "renderer/routes/_authenticated/providers/LocalHostServiceProvider";
 import { useNewWorkspaceModalOpen } from "renderer/stores/new-workspace-modal";
 import { useNewWorkspacePromptContext } from "renderer/stores/new-workspace-prompt-context";
@@ -265,14 +271,14 @@ export function PromptGroup({
 	const localHostNotReady =
 		(draft.hostId ?? machineId) === machineId && !activeHostUrl;
 	const submitBlocker = useMemo<string | null>(() => {
-		if (!projectId) return "Select a project";
+		if (!projectId) return "Выберите проект";
 		const selectedHostId = draft.hostId ?? machineId;
-		if (!selectedHostId) return "No active host";
+		if (!selectedHostId) return "Нет активного host";
 		if (selectedHostId !== machineId) {
 			const remote = otherHosts.find((h) => h.id === selectedHostId);
-			if (!remote?.isOnline) return "Host is offline";
+			if (!remote?.isOnline) return "Host offline";
 		} else if (!activeHostUrl) {
-			return "Host service is not running";
+			return "Host service не запущен";
 		}
 		return null;
 	}, [projectId, draft.hostId, machineId, activeHostUrl, otherHosts]);
@@ -308,6 +314,51 @@ export function PromptGroup({
 		if (submitBlocker) return;
 		void createWorkspace();
 	}, [createWorkspace, handleGoToSetup, needsSetup, submitBlocker]);
+	const electronUtils = electronTrpc.useUtils();
+	const dictationEnabled =
+		electronTrpc.settings.getDictationEnabled.useQuery().data;
+	const { data: permissionStatus } =
+		electronTrpc.permissions.getStatus.useQuery();
+	const { data: voiceConfig } = useQuery({
+		queryKey: ["voice", "isConfigured"],
+		queryFn: () => apiClient.voice.isConfigured.query(),
+		staleTime: Number.POSITIVE_INFINITY,
+	});
+	const micDisabledReason = getDictationDisabledReason({
+		dictationEnabled,
+		dictationConfigured: voiceConfig?.configured,
+		microphoneGranted: permissionStatus?.microphone,
+	});
+	const [dictationTranscribing, setDictationTranscribing] = useState(false);
+	const handleDictationComplete = useCallback(
+		async (recording: Recording) => {
+			setDictationTranscribing(true);
+			try {
+				const audioBase64 = await blobToBase64(recording.blob);
+				const voiceAgentContext =
+					await electronUtils.settings.getVoiceAgentContext
+						.fetch()
+						.catch(() => "");
+				const result = await apiClient.voice.transcribe.mutate({
+					audioBase64,
+					mimeType: recording.mimeType,
+					durationMs: recording.durationMs,
+					voiceAgentContext: voiceAgentContext?.trim() || undefined,
+				});
+				const text = (result.processed?.ru || result.rawText || "").trim();
+				if (!text) {
+					toast.info("Не удалось распознать речь");
+					return;
+				}
+				updateDraft({ prompt: prompt ? `${prompt} ${text}` : text });
+			} catch {
+				toast.error("Ошибка расшифровки — запись сохранена для повтора");
+			} finally {
+				setDictationTranscribing(false);
+			}
+		},
+		[electronUtils, prompt, updateDraft],
+	);
 
 	useEffect(() => {
 		if (!isNewWorkspaceModalOpen) return;
@@ -462,13 +513,13 @@ export function PromptGroup({
 						<AgentSelect<WorkspaceCreateAgent>
 							agents={v2Agents}
 							value={selectedAgent}
-							placeholder="No agent"
+							placeholder="Без агента"
 							onValueChange={setSelectedAgent}
 							onBeforeConfigureAgents={closeModal}
 							triggerClassName={`${PILL_BUTTON_CLASS} px-1.5 gap-1 text-foreground w-auto max-w-[160px]`}
 							iconClassName="size-3 object-contain"
 							allowNone
-							noneLabel="No agent"
+							noneLabel="Без агента"
 							noneValue="none"
 						/>
 						{showOdwHarnessBadge && (
@@ -531,6 +582,12 @@ export function PromptGroup({
 								</PRLinkCommand>
 							}
 						/>
+						<MicButton
+							onComplete={handleDictationComplete}
+							transcribing={dictationTranscribing}
+							disabled={micDisabledReason !== undefined}
+							disabledReason={micDisabledReason}
+						/>
 						<PromptInputSubmit
 							className="size-[22px] rounded-full border border-transparent bg-foreground/10 shadow-none p-[5px] hover:bg-foreground/20"
 							disabled={needsSetup || submitBlocker !== null}
@@ -571,7 +628,7 @@ export function PromptGroup({
 								className="flex items-center gap-1 text-xs text-muted-foreground"
 							>
 								<LuGitPullRequest className="size-3 shrink-0" />
-								based off PR #{linkedPR.prNumber}
+								от PR #{linkedPR.prNumber}
 							</motion.span>
 						) : (
 							<motion.div
@@ -596,7 +653,7 @@ export function PromptGroup({
 							className="h-6 px-2 text-[11px] text-amber-500 hover:text-amber-500"
 							onClick={handleGoToSetup}
 						>
-							Set up project…
+							Настроить проект…
 						</Button>
 					) : localHostNotReady ? (
 						<HostStatusInline />

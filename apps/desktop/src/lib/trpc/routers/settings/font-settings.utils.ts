@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const setFontSettingsSchema = z.object({
+	uiFontFamily: z.string().max(500).nullable().optional(),
+	uiFontSize: z.number().int().min(10).max(24).nullable().optional(),
 	terminalFontFamily: z.string().max(500).nullable().optional(),
 	terminalFontSize: z.number().int().min(10).max(24).nullable().optional(),
 	editorFontFamily: z.string().max(500).nullable().optional(),
@@ -14,6 +16,12 @@ export function transformFontSettings(
 ): Record<string, string | number | null> {
 	const set: Record<string, string | number | null> = {};
 
+	if (input.uiFontFamily !== undefined) {
+		set.uiFontFamily = input.uiFontFamily?.trim() || null;
+	}
+	if (input.uiFontSize !== undefined) {
+		set.uiFontSize = input.uiFontSize;
+	}
 	if (input.terminalFontFamily !== undefined) {
 		set.terminalFontFamily = input.terminalFontFamily?.trim() || null;
 	}

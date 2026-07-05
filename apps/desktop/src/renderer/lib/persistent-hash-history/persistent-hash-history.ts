@@ -92,6 +92,7 @@ const RESTORABLE_STATIC_ROUTES = [
 	"/memory",
 	"/notes",
 	"/pipelines",
+	"/quick-chat",
 	"/saved-prompts",
 	"/skills-library",
 	"/tasks",

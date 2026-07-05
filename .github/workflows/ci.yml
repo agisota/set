@@ -163,7 +163,10 @@ jobs:
           done
 
       - name: Install Linux native build deps
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxkbfile-dev
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/azure-cli.list
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxkbfile-dev
 
       - name: Install desktop native dependencies
         working-directory: apps/desktop
@@ -253,7 +256,10 @@ jobs:
           done
 
       - name: Install Linux native build deps
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxkbfile-dev
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/azure-cli.list
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxkbfile-dev
 
       - name: Install desktop native dependencies
         working-directory: apps/desktop

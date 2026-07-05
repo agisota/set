@@ -49,7 +49,7 @@ export function SubagentExecutionMessage({
 	const content = (
 		<div className="w-full max-w-none space-y-3 rounded-xl border bg-card/95 p-3">
 			<div className="text-sm font-medium text-foreground">
-				Subagent activity
+				Активность субагентов
 			</div>
 			<motion.div
 				className="space-y-3"

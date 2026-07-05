@@ -11,13 +11,6 @@ export interface SuiteScreenProps {
 	className?: string;
 }
 
-/**
- * Shared shell for the Workspace Suite screens (Drive / Calendar / Notes /
- * Email). Mirrors the existing dashboard screen idiom (journal/pipelines): a
- * scrollable, full-window-width column with `px-6` gutters, a header with title
- * + description, and an optional right-aligned action slot. Keeps the four views
- * visually consistent without each re-implementing the same header markup.
- */
 export function SuiteScreen({
 	title,
 	description,
@@ -27,8 +20,10 @@ export function SuiteScreen({
 	className,
 }: SuiteScreenProps) {
 	return (
-		<div className="h-full overflow-y-auto">
-			<div className={cn("w-full px-6 py-6", className)}>
+		<div className="flex h-full min-w-0 w-full flex-1 overflow-y-auto bg-background/85">
+			<div
+				className={cn("flex min-h-full w-full flex-col px-6 py-6", className)}
+			>
 				<header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 					<div className="min-w-0">
 						<h1 className="flex min-w-0 items-center gap-2 font-semibold text-2xl text-foreground">

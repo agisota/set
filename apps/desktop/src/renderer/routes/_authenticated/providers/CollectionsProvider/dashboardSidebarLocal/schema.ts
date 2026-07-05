@@ -32,6 +32,9 @@ export type ChangesFilter = z.infer<typeof changesFilterSchema>;
 
 export type ChangesViewMode = "folders" | "tree";
 
+export const rightSidebarStateSchema = z.enum(["hidden", "peek", "expanded"]);
+export type RightSidebarState = z.infer<typeof rightSidebarStateSchema>;
+
 const workspaceRunStateSchema = z.enum([
 	"running",
 	"stopped-by-user",
@@ -62,7 +65,7 @@ export const workspaceLocalStateSchema = z.object({
 		changesFilter: changesFilterSchema.default({ kind: "all" }),
 		changesViewMode: z.enum(["folders", "tree"]).default("folders"),
 		activeTab: z
-			.enum(["changes", "files", "review", "governance"])
+			.enum(["changes", "files", "review", "management"])
 			.default("changes"),
 		isHidden: z.boolean().default(false),
 		/** Per-branch accent color (hex/oklch string) or null for default. */
@@ -71,13 +74,6 @@ export const workspaceLocalStateSchema = z.object({
 		labels: z.array(z.string()).default([]),
 	}),
 	paneLayout: paneWorkspaceStateSchema,
-	/**
-	 * Relative directory paths (no trailing slash; "" = root is implicit and
-	 * never stored) the user has expanded in the Files tree (F32). Persisted so
-	 * expansion survives reload; on root-load the bridge prefetches each entry's
-	 * children in parallel (depth-1) and re-expands the matching rows.
-	 */
-	expandedDirs: z.array(z.string()).default([]),
 	viewedFiles: z.array(z.string()).default([]),
 	recentlyViewedFiles: z
 		.array(
@@ -88,6 +84,7 @@ export const workspaceLocalStateSchema = z.object({
 			}),
 		)
 		.default([]),
+	expandedDirs: z.array(z.string()).default([]),
 	workspaceRunTerminals: z
 		.record(z.string(), workspaceRunTerminalStateSchema)
 		.default({}),
@@ -108,13 +105,13 @@ const SIDEBAR_STATE_DEFAULTS = {
 } as const;
 
 const WORKSPACE_LOCAL_STATE_OPTIONAL_DEFAULTS = {
-	expandedDirs: [] as string[],
 	viewedFiles: [] as string[],
 	recentlyViewedFiles: [] as Array<{
 		relativePath: string;
 		absolutePath: string;
 		lastAccessedAt: number;
 	}>,
+	expandedDirs: [] as string[],
 	workspaceRunTerminals: {} as Record<
 		string,
 		z.infer<typeof workspaceRunTerminalStateSchema>
@@ -255,14 +252,7 @@ export const v2UserPreferencesSchema = z.object({
 	sidebarFileLinks: linkTierMapSchema.default(DEFAULT_SIDEBAR_FILE_LINKS),
 	terminalPresetsInitialized: z.boolean().default(false),
 	rightSidebarOpen: z.boolean().default(true),
-	/**
-	 * Right files panel 3-state (F03 / #616): `hidden` (width 0 + floating
-	 * edge-pill) | `peek` (narrow snap) | `expanded` (full). This is the source
-	 * of truth for the panel's resting state; the legacy `rightSidebarOpen`
-	 * boolean is kept for back-compat and healed into this column (open →
-	 * `expanded`, closed → `hidden`) for rows persisted before it existed.
-	 */
-	rightSidebarState: z.enum(["hidden", "peek", "expanded"]).default("expanded"),
+	rightSidebarState: rightSidebarStateSchema.default("expanded"),
 	rightSidebarTab: z.enum(["changes", "files"]).default("changes"),
 	rightSidebarWidth: z.number().default(340),
 	deleteLocalBranch: z.boolean().default(false),
@@ -302,13 +292,13 @@ export function healWorkspaceLocalState(raw: unknown): WorkspaceLocalStateRow {
 	) as Partial<WorkspaceLocalStateRow["sidebarState"]>;
 	return {
 		...r,
-		expandedDirs:
-			r.expandedDirs ?? WORKSPACE_LOCAL_STATE_OPTIONAL_DEFAULTS.expandedDirs,
 		viewedFiles:
 			r.viewedFiles ?? WORKSPACE_LOCAL_STATE_OPTIONAL_DEFAULTS.viewedFiles,
 		recentlyViewedFiles:
 			r.recentlyViewedFiles ??
 			WORKSPACE_LOCAL_STATE_OPTIONAL_DEFAULTS.recentlyViewedFiles,
+		expandedDirs:
+			r.expandedDirs ?? WORKSPACE_LOCAL_STATE_OPTIONAL_DEFAULTS.expandedDirs,
 		workspaceRunTerminals:
 			r.workspaceRunTerminals ??
 			WORKSPACE_LOCAL_STATE_OPTIONAL_DEFAULTS.workspaceRunTerminals,
@@ -340,17 +330,9 @@ export function healV2UserPreferences(raw: unknown): V2UserPreferencesRow {
 		r.sidebarFileLinks &&
 		isCompleteLinkTierMap(r.sidebarFileLinks) &&
 		isSameLinkTierMap(r.sidebarFileLinks, LEGACY_SIDEBAR_FILE_LINKS);
-	// 3-state panel (F03 / #616): rows persisted before `rightSidebarState`
-	// existed only carry the legacy binary `rightSidebarOpen`. Derive the
-	// resting state from it (open → expanded, closed → hidden) so the new chrome
-	// reads a meaningful value instead of the unconditional default.
-	const rightSidebarState =
-		r.rightSidebarState ??
-		(r.rightSidebarOpen === false ? "hidden" : "expanded");
 	return {
 		...DEFAULT_V2_USER_PREFERENCES,
 		...r,
-		rightSidebarState,
 		fileLinks: { ...DEFAULT_V2_USER_PREFERENCES.fileLinks, ...r.fileLinks },
 		urlLinks: { ...DEFAULT_V2_USER_PREFERENCES.urlLinks, ...r.urlLinks },
 		sidebarFileLinks: shouldMigrateLegacySidebarFileLinks

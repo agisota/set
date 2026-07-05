@@ -26,24 +26,6 @@ describe("healV2UserPreferences", () => {
 		expect(healed.fileLinks).toEqual(DEFAULT_V2_USER_PREFERENCES.fileLinks);
 	});
 
-	it("derives the 3-state rightSidebarState from legacy rightSidebarOpen (F03 / #616)", () => {
-		// Rows persisted before the rightSidebarState column only carry the legacy
-		// binary flag; heal must map open → expanded and closed → hidden.
-		expect(
-			healV2UserPreferences({ rightSidebarOpen: false }).rightSidebarState,
-		).toBe("hidden");
-		expect(
-			healV2UserPreferences({ rightSidebarOpen: true }).rightSidebarState,
-		).toBe("expanded");
-		// An explicit stored state wins over the legacy derivation.
-		expect(
-			healV2UserPreferences({
-				rightSidebarOpen: false,
-				rightSidebarState: "peek",
-			}).rightSidebarState,
-		).toBe("peek");
-	});
-
 	it("preserves the terminal presets initialization sentinel", () => {
 		const healed = healV2UserPreferences({
 			terminalPresetsInitialized: true,
@@ -118,7 +100,6 @@ describe("healWorkspaceLocalState", () => {
 			activeTab: "changes",
 			isHidden: false,
 		},
-		expandedDirs: ["src", "src/lib"],
 		viewedFiles: ["a.ts"],
 		recentlyViewedFiles: [],
 	};
@@ -137,19 +118,16 @@ describe("healWorkspaceLocalState", () => {
 		);
 		expect(healed.sidebarState.tabOrder).toBe(3);
 		expect(healed.viewedFiles).toEqual(["a.ts"]);
-		expect(healed.expandedDirs).toEqual(["src", "src/lib"]);
 	});
 
 	it("fills missing top-level optional fields", () => {
 		const stored = {
 			...baseStored,
-			expandedDirs: undefined,
 			viewedFiles: undefined,
 			recentlyViewedFiles: undefined,
 			workspaceRunTerminals: undefined,
 		};
 		const healed = healWorkspaceLocalState(stored);
-		expect(healed.expandedDirs).toEqual([]);
 		expect(healed.viewedFiles).toEqual([]);
 		expect(healed.recentlyViewedFiles).toEqual([]);
 		expect(healed.workspaceRunTerminals).toEqual({});
@@ -171,6 +149,18 @@ describe("healWorkspaceLocalState", () => {
 		expect(healed.sidebarState.changesFilter).toEqual({ kind: "all" });
 		expect(healed.sidebarState.activeTab).toBe("changes");
 		expect(healed.sidebarState.isHidden).toBe(false);
+	});
+
+	it("preserves the management sidebar tab", () => {
+		const healed = healWorkspaceLocalState({
+			...baseStored,
+			sidebarState: {
+				...baseStored.sidebarState,
+				activeTab: "management",
+			},
+		});
+
+		expect(healed.sidebarState.activeTab).toBe("management");
 	});
 
 	it("does not throw on null/non-object input (parser must never throw)", () => {

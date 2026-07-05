@@ -1,4 +1,3 @@
-import type { RouterOutputs } from "@rox/trpc";
 import type { DraftAttachment, MailDraft } from "../components/MailComposer";
 
 /**
@@ -16,7 +15,22 @@ import type { DraftAttachment, MailDraft } from "../components/MailComposer";
 export type MailPlacement = "inbox" | "archive" | "spam" | "trash";
 
 /** One server draft row as returned by `mail.listDrafts`. */
-export type MailDraftRow = RouterOutputs["mail"]["listDrafts"][number];
+export interface MailDraftRow {
+	id: string;
+	threadId: string | null;
+	updatedAt: Date | string;
+	toAddrs: string;
+	ccAddrs: string;
+	bccAddrs: string;
+	subject: string;
+	body: string;
+	attachments: Array<{
+		filename: string;
+		sizeBytes: number;
+		contentType?: string;
+		blobKey?: string;
+	}> | null;
+}
 
 /**
  * A draft surfaced to the composer / drafts list. Keeps the original

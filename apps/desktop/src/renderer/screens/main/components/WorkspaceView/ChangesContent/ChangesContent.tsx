@@ -27,7 +27,7 @@ export function ChangesContent() {
 	if (!worktreePath) {
 		return (
 			<div className="h-full flex items-center justify-center text-muted-foreground">
-				No workspace selected
+				Рабочая область не выбрана
 			</div>
 		);
 	}
@@ -35,7 +35,7 @@ export function ChangesContent() {
 	if (isLoading) {
 		return (
 			<div className="h-full flex items-center justify-center text-muted-foreground">
-				Loading changes...
+				Загружаем изменения...
 			</div>
 		);
 	}
@@ -43,7 +43,7 @@ export function ChangesContent() {
 	if (!status) {
 		return (
 			<div className="h-full flex items-center justify-center text-muted-foreground">
-				Unable to load changes
+				Не удалось загрузить изменения
 			</div>
 		);
 	}

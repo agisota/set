@@ -1,69 +1,70 @@
+import { Badge } from "@rox/ui/badge";
+import { Button } from "@rox/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@rox/ui/dialog";
+import { Input } from "@rox/ui/input";
+import { Label } from "@rox/ui/label";
+import { Skeleton } from "@rox/ui/skeleton";
 import { toast } from "@rox/ui/sonner";
+import { Textarea } from "@rox/ui/textarea";
+import { cn } from "@rox/ui/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { DashboardSurface } from "renderer/components/DashboardSurface";
+import {
+	ArrowDownLeft,
+	ArrowUpRight,
+	AtSign,
+	Download,
+	Mail,
+	Paperclip,
+	PenSquare,
+	Send,
+	UserRound,
+} from "lucide-react";
+import { useMemo, useState } from "react";
 import { useCloudTrpc as useTRPC } from "renderer/lib/api-trpc-react";
 import { authClient } from "renderer/lib/auth-client";
 import { logger } from "renderer/lib/logger";
-import {
-	EMPTY_DRAFT,
-	type MailDraft,
-	parseRecipients,
-} from "./components/MailComposer";
-import { MailDraftsList } from "./components/MailDraftsList";
-import { MailFolderRail } from "./components/MailFolderRail";
-import { MailHeader } from "./components/MailHeader";
-import { MailShell } from "./components/MailShell";
-import {
-	type MailReadFilter,
-	MailThreadList,
-} from "./components/MailThreadList";
-import { MailThreadReader } from "./components/MailThreadReader";
-import { filterThreads } from "./lib/filterThreads";
-import { deriveMailCounts } from "./lib/mailCounts";
-import { messagePreview } from "./lib/mailFormat";
-import {
-	buildForwardSubject,
-	buildMailReplyContext,
-} from "./lib/mailReplyContext";
-import {
-	type MailPlacement,
-	type SavedDraft,
-	toSavedDraft,
-} from "./lib/mailStore";
-import type { MailFolderId } from "./lib/mailTypes";
-import { uploadDraftAttachments } from "./lib/uploadAttachments";
-import { useMailKeyboard } from "./lib/useMailKeyboard";
+import { SuiteQueryError } from "../components/SuiteQueryError";
+import { SuiteScreen } from "../components/SuiteScreen";
+import { sanitizeMailHtml } from "./sanitizeMailHtml";
+import { useMailBody } from "./useMailBody";
 
-/** What the inline composer is currently doing (drives prefill + title). */
-type ComposeMode = "new" | "reply" | "replyAll" | "forward";
+function formatDateTime(value: Date | string | null | undefined): string {
+	if (!value) return "";
+	const date = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(date.getTime())) return "";
+	return date.toLocaleString([], {
+		day: "2-digit",
+		month: "short",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+}
 
 /**
- * Mail surface — a full-width email client: an always-visible header (identity +
- * counts + search + Написать) over a three-pane body (rail | virtualized list |
- * reader + inline composer) on the real `mail.*` contract.
+ * Email inbox (Suite P3 surfaced in P0), mirroring the web inbox: a thread list
+ * on the left (`mail.listThreads`), the selected thread's messages on the right
+ * (`mail.getThread`), compose/reply via `mail.send`, and read-state via
+ * `mail.markRead`.
  *
- * Standalone (`/email`) it owns its own folder + selection state; embedded in
- * `InboxView` the open thread is lifted via {@link EmailViewProps} so live SSE
- * there can invalidate `mail.getThread`. Either way it renders inside
- * `<DashboardSurface width="full" bare>` — no `max-w` cap, no centered gutter.
+ * Bodies live in R2: the FULL body is fetched per message via `mail.getBodyUrl`
+ * (FEATURE A). An HTML body is sanitized with DOMPurify (`sanitizeMailHtml`) and
+ * rendered in an isolated, clipped container; a text body renders as escaped
+ * plain text. The server-trimmed `snippet` is the loading/error fallback.
+ * Attachments are downloadable via short-TTL presigned `mail.getAttachmentUrl`.
  *
- * IDENTITY: the account email is read from `authClient.useSession()`; the
- * routable `<handle>@rox.one` mailbox from `mail.provisionAddress` (idempotent).
+ * Cache-first (AGENTS.md rule 9): cached threads render while a refetch runs.
  *
- * SERVER-BACKED (FN-135/138/139/141, #697/#698/#699/#701): folder placement +
- * the ⭐ flag live on the `mail_threads` row (`mail.setFolder`/`mail.setFlag`);
- * the unread badge is the real `unreadCount` aggregate from `mail.listThreads`;
- * search hits the Postgres FTS `mail.search`; drafts persist via
- * `mail.saveDraft`/`listDrafts`/`deleteDraft`; attachments upload to R2 (presigned
- * PUT) before `mail.send`. Nothing in this surface uses localStorage anymore.
- *
- * Security invariants preserved: HTML bodies are DOMPurify-sanitized AND rendered
- * in a sandboxed iframe with remote images blocked by default; presigned R2 URLs
- * are never logged.
- *
- * Cache-first (AGENTS.md #9): cached threads/bodies render while refetches run;
- * mutations invalidate rather than block the UI.
+ * Selection is OPTIONALLY controllable: when `InboxView` mounts EmailView inside
+ * the unified inbox it lifts the open thread up (so live SSE can invalidate the
+ * open mail thread's `mail.getThread`). The standalone `/email` route mounts it
+ * with no props and keeps its own internal selection — backward compatible.
  */
 export interface EmailViewProps {
 	/** Controlled open thread id; omit to use EmailView's internal selection. */
@@ -77,7 +78,6 @@ export function EmailView(props: EmailViewProps = {}) {
 	const queryClient = useQueryClient();
 	const { data: session } = authClient.useSession();
 
-	// ---- Selection (optionally controlled by InboxView) --------------------
 	const [internalThreadId, setInternalThreadId] = useState<string | null>(null);
 	const isControlled = props.activeThreadId !== undefined;
 	const activeThreadId = isControlled
@@ -87,624 +87,425 @@ export function EmailView(props: EmailViewProps = {}) {
 		if (!isControlled) setInternalThreadId(id);
 		props.onSelectThread?.(id);
 	};
+	const [composeOpen, setComposeOpen] = useState(false);
+	const [to, setTo] = useState("");
+	const [subject, setSubject] = useState("");
+	const [body, setBody] = useState("");
 
-	// ---- Local UI state -----------------------------------------------------
-	const [folder, setFolder] = useState<MailFolderId>("inbox");
-	const [search, setSearch] = useState("");
-	const [readFilter, setReadFilter] = useState<MailReadFilter>("all");
-	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-	const [composeMode, setComposeMode] = useState<ComposeMode | null>(null);
-	const [draft, setDraft] = useState<MailDraft>(EMPTY_DRAFT);
-	const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
-	const [outboundDisabled, setOutboundDisabled] = useState(false);
-	const [selected, setSelected] = useState<Set<string>>(new Set());
-	const searchRef = useRef<HTMLInputElement>(null);
-	// Holds the latest `openCompose` so the global Cmd+N listener (bound once)
-	// always invokes the current closure without re-subscribing every render.
-	const openComposeRef = useRef<(mode: ComposeMode) => void>(() => {});
-
-	// Debounced search term → the FTS query is only run for a non-trivial term.
-	const [debouncedSearch, setDebouncedSearch] = useState("");
-	useEffect(() => {
-		const id = setTimeout(() => setDebouncedSearch(search.trim()), 250);
-		return () => clearTimeout(id);
-	}, [search]);
-	const isSearching = debouncedSearch.length > 0;
-
-	// ---- Data ---------------------------------------------------------------
 	const threadsQuery = useQuery(
-		trpc.mail.listThreads.queryOptions({ limit: 100 }),
+		trpc.mail.listThreads.queryOptions({ limit: 50 }),
 	);
-	const allThreads = useMemo(
-		() => threadsQuery.data ?? [],
-		[threadsQuery.data],
-	);
-
-	// FN-138 (#698): server-side FTS. Active only while a query is present; its
-	// results replace the folder feed (the rail still shows folder counts).
-	const searchQuery = useQuery({
-		...trpc.mail.search.queryOptions({ query: debouncedSearch, limit: 50 }),
-		enabled: isSearching,
-	});
-
-	// FN-139 (#699): server-backed drafts.
-	const draftsQuery = useQuery(trpc.mail.listDrafts.queryOptions());
-	const drafts: SavedDraft[] = useMemo(
-		() => (draftsQuery.data ?? []).map(toSavedDraft),
-		[draftsQuery.data],
-	);
-
-	// Provision (or re-affirm) the caller's <handle>@rox.one mailbox so the
-	// header can show the real sending address. Idempotent server-side.
-	const provision = useMutation(
-		trpc.mail.provisionAddress.mutationOptions({
-			onError: (error) =>
-				logger.error("[EmailView] provisionAddress failed", error),
-		}),
-	);
-	const provisionMutate = provision.mutate;
-	useEffect(() => {
-		if (session?.user?.id) provisionMutate({});
-	}, [session?.user?.id, provisionMutate]);
-	const mailboxAddress = provision.data?.address ?? null;
-
-	const visibleThreads = useMemo(() => {
-		// While searching, the FTS results are the feed (already thread-rolled).
-		if (isSearching) {
-			const results = searchQuery.data ?? [];
-			if (readFilter === "unread") {
-				return results.filter((t) => t.unreadCount > 0);
-			}
-			return results;
-		}
-		const filtered = filterThreads(allThreads, folder);
-		if (readFilter === "unread") {
-			return filtered.filter((t) => t.unreadCount > 0);
-		}
-		return filtered;
-	}, [isSearching, searchQuery.data, allThreads, folder, readFilter]);
-
-	const counts = useMemo(
-		() =>
-			deriveMailCounts({
-				threads: allThreads,
-				draftCount: drafts.length,
-			}),
-		[allThreads, drafts.length],
-	);
+	const mailboxQuery = useQuery(trpc.mail.getMailbox.queryOptions());
+	const threads = threadsQuery.data ?? [];
+	const mailbox = mailboxQuery.data?.address ?? null;
+	const sessionUser = session?.user;
+	const loginEmail = sessionUser?.email ?? "Аккаунт загружается";
+	const loginName = sessionUser?.name?.trim() || loginEmail;
+	const mailboxAddress = mailbox?.address ?? "Почтовый ящик @rox.one не создан";
+	const mailboxStatus =
+		mailbox?.status === "active"
+			? "Активен"
+			: mailbox?.status === "disabled"
+				? "Отключён"
+				: mailbox?.status === "grace"
+					? "Переходный период"
+					: "Нужна настройка";
 
 	const threadQuery = useQuery({
 		...trpc.mail.getThread.queryOptions({ threadId: activeThreadId ?? "" }),
 		enabled: activeThreadId !== null,
 	});
-	const thread = threadQuery.data?.thread ?? null;
-	const messages = useMemo(
-		() => threadQuery.data?.messages ?? [],
-		[threadQuery.data],
-	);
-
-	// ---- Mutations: invalidation helpers ------------------------------------
-	const invalidateThread = async () => {
-		if (!activeThreadId) return;
-		await queryClient.invalidateQueries({
-			queryKey: trpc.mail.getThread.queryKey({ threadId: activeThreadId }),
-		});
-	};
-	const invalidateThreads = async () => {
-		await queryClient.invalidateQueries({
-			queryKey: trpc.mail.listThreads.queryKey({ limit: 100 }),
-		});
-	};
-	const invalidateDrafts = async () => {
-		await queryClient.invalidateQueries({
-			queryKey: trpc.mail.listDrafts.queryKey(),
-		});
-	};
 
 	const markRead = useMutation(
 		trpc.mail.markRead.mutationOptions({
 			onSuccess: async () => {
-				await invalidateThread();
-				await invalidateThreads();
+				if (activeThreadId) {
+					await queryClient.invalidateQueries({
+						queryKey: trpc.mail.getThread.queryKey({
+							threadId: activeThreadId,
+						}),
+					});
+				}
 			},
-			onError: (error) => logger.error("[EmailView] markRead failed", error),
+			onError: (error) => {
+				logger.error("[EmailView] markRead failed", error);
+			},
 		}),
-	);
-
-	// FN-135 (#697): server folder placement + ⭐ flag.
-	const setFolderM = useMutation(
-		trpc.mail.setFolder.mutationOptions({
-			onSuccess: invalidateThreads,
-			onError: (error) => logger.error("[EmailView] setFolder failed", error),
-		}),
-	);
-	const setFlagM = useMutation(
-		trpc.mail.setFlag.mutationOptions({
-			onSuccess: invalidateThreads,
-			onError: (error) => logger.error("[EmailView] setFlag failed", error),
-		}),
-	);
-
-	// FN-139 (#699): server drafts.
-	const saveDraftM = useMutation(
-		trpc.mail.saveDraft.mutationOptions({
-			onSuccess: invalidateDrafts,
-			onError: (error) => logger.error("[EmailView] saveDraft failed", error),
-		}),
-	);
-	const deleteDraftM = useMutation(
-		trpc.mail.deleteDraft.mutationOptions({
-			onSuccess: invalidateDrafts,
-			onError: (error) => logger.error("[EmailView] deleteDraft failed", error),
-		}),
-	);
-
-	// FN-141 (#701): presign attachment uploads.
-	const presignM = useMutation(
-		trpc.mail.presignAttachmentUpload.mutationOptions(),
 	);
 
 	const send = useMutation(
 		trpc.mail.send.mutationOptions({
 			onSuccess: async () => {
-				await invalidateThreads();
-				await invalidateThread();
-				// A sent draft is consumed (delete it server-side).
-				if (activeDraftId) deleteDraftM.mutate({ id: activeDraftId });
-				closeComposer();
+				await queryClient.invalidateQueries({
+					queryKey: trpc.mail.listThreads.queryKey({ limit: 50 }),
+				});
+				setComposeOpen(false);
+				setTo("");
+				setSubject("");
+				setBody("");
 				toast.success("Письмо отправлено");
 			},
 			onError: (error) => {
 				logger.error("[EmailView] send failed", error);
-				if (error.data?.code === "PRECONDITION_FAILED") {
-					setOutboundDisabled(true);
-				}
 				toast.error(error.message || "Не удалось отправить письмо");
 			},
 		}),
 	);
 
-	// ---- Effects: open a thread → expand latest + auto-mark-read ------------
-	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on thread id
-	useEffect(() => {
-		if (!activeThreadId || messages.length === 0) return;
-		// Latest message expanded, rest collapsed (Gmail-like).
-		const latest = messages.at(-1);
-		setExpandedIds(new Set(latest ? [latest.id] : []));
-		// Auto-mark every unread inbound message read on open.
-		for (const m of messages) {
-			if (!m.isRead && m.direction === "inbound") {
-				markRead.mutate({ messageId: m.id, isRead: true });
-			}
-		}
-	}, [activeThreadId, messages.length]);
+	const messages = threadQuery.data?.messages ?? [];
 
-	// Reset transient state when leaving a thread.
-	useEffect(() => {
-		if (activeThreadId === null) {
-			setExpandedIds(new Set());
-			setComposeMode(null);
-		}
-	}, [activeThreadId]);
-
-	// ---- Composer control ---------------------------------------------------
-	const closeComposer = () => {
-		setComposeMode(null);
-		setDraft(EMPTY_DRAFT);
-		setActiveDraftId(null);
-	};
-
-	const openCompose = (mode: ComposeMode) => {
-		if (mode === "new") {
-			setDraft(EMPTY_DRAFT);
-			setActiveDraftId(null);
-			setComposeMode("new");
-			return;
-		}
-		if (!thread) return;
-		const ctx = buildMailReplyContext(thread, messages, {
-			replyAll: mode === "replyAll",
-		});
-		if (mode === "forward") {
-			const last = messages.at(-1);
-			const quoted = last?.snippet
-				? `\n\n— Пересланное письмо —\n${messagePreview(last.snippet, 500)}`
-				: "";
-			setDraft({
-				...EMPTY_DRAFT,
-				subject: buildForwardSubject(last?.subject ?? thread.subjectNorm),
-				body: quoted,
-			});
-		} else {
-			setDraft({
-				to: ctx.to,
-				cc: "",
-				bcc: "",
-				subject: ctx.subject,
-				body: "",
-				attachments: [],
-			});
-		}
-		setActiveDraftId(null);
-		setComposeMode(mode);
-	};
-
-	// Re-open a persisted draft back into the composer (Черновики folder).
-	const openSavedDraft = (saved: SavedDraft) => {
-		setDraft({
-			to: saved.to,
-			cc: saved.cc,
-			bcc: saved.bcc,
-			subject: saved.subject,
-			body: saved.body,
-			attachments: saved.attachments ?? [],
-		});
-		setActiveDraftId(saved.id);
-		if (saved.threadId) setActiveThreadId(saved.threadId);
-		setComposeMode(saved.threadId ? "reply" : "new");
-	};
-
-	const handleSaveDraft = () => {
-		const replyThreadId =
-			composeMode === "reply" || composeMode === "replyAll"
-				? activeThreadId
-				: null;
-		saveDraftM.mutate(
-			{
-				id: activeDraftId ?? undefined,
-				threadId: replyThreadId ?? undefined,
-				to: draft.to,
-				cc: draft.cc,
-				bcc: draft.bcc,
-				subject: draft.subject,
-				body: draft.body,
-				attachments: (draft.attachments ?? []).map((a) => ({
-					filename: a.name,
-					sizeBytes: a.size,
-					contentType: a.contentType,
-					blobKey: a.key,
-				})),
-			},
-			{
-				onSuccess: (row) => {
-					if (row?.id) setActiveDraftId(row.id);
-					toast.success("Черновик сохранён");
-				},
-			},
-		);
-	};
-
-	const handleDeleteDraft = (id: string) => {
-		deleteDraftM.mutate({ id });
-		if (id === activeDraftId) closeComposer();
-	};
-
-	const handleSend = async () => {
-		const to = parseRecipients(draft.to);
-		const cc = parseRecipients(draft.cc);
-		const bcc = parseRecipients(draft.bcc);
-		if (to.length === 0 || !draft.body.trim()) return;
-
-		// FN-141 (#701): upload any staged attachments to R2 (presigned PUT), then
-		// pass their keys on send. A presigned PUT + direct R2 upload keeps bytes
-		// off the tRPC request. Failure here aborts the send with a clear toast.
-		let attachmentRefs: Awaited<ReturnType<typeof uploadDraftAttachments>> = [];
-		if ((draft.attachments ?? []).length > 0) {
-			try {
-				attachmentRefs = await uploadDraftAttachments(
-					draft.attachments ?? [],
-					(input) => presignM.mutateAsync(input),
-				);
-			} catch (error) {
-				logger.error("[EmailView] attachment upload failed", error);
-				toast.error("Не удалось загрузить вложение");
-				return;
-			}
-		}
-
-		// RFC reply headers come from the thread context for reply/replyAll.
-		const replyCtx =
-			composeMode === "reply" || composeMode === "replyAll"
-				? buildMailReplyContext(thread, messages, {
-						replyAll: composeMode === "replyAll",
-					})
-				: null;
-
+	const handleSend = () => {
+		const recipients = to
+			.split(/[,;\s]+/)
+			.map((value) => value.trim())
+			.filter(Boolean);
+		if (recipients.length === 0 || !body.trim()) return;
 		send.mutate({
-			threadId:
-				composeMode === "reply" || composeMode === "replyAll"
-					? activeThreadId
-					: undefined,
-			to,
-			cc: cc.length ? cc : undefined,
-			bcc: bcc.length ? bcc : undefined,
-			subject: draft.subject.trim() || undefined,
-			body: draft.body,
-			inReplyTo: replyCtx?.inReplyTo ?? undefined,
-			references: replyCtx?.references.length ? replyCtx.references : undefined,
-			attachments: attachmentRefs.length ? attachmentRefs : undefined,
+			to: recipients,
+			subject: subject.trim() || undefined,
+			body,
 		});
 	};
-
-	// ---- Folder/flag actions (server mutations) -----------------------------
-	const place = (id: string, target: MailPlacement, label: string) => {
-		setFolderM.mutate({ threadId: id, folder: target });
-		if (id === activeThreadId) setActiveThreadId(null);
-		setSelected((prev) => {
-			if (!prev.has(id)) return prev;
-			const next = new Set(prev);
-			next.delete(id);
-			return next;
-		});
-		toast.success(label);
-	};
-	const archiveThread = (id: string) => place(id, "archive", "В архиве");
-	const trashThread = (id: string) => place(id, "trash", "В корзине");
-	const spamThread = (id: string) => place(id, "spam", "Отмечено как спам");
-	const restoreThread = (id: string) => {
-		setFolderM.mutate({ threadId: id, folder: "inbox" });
-		toast.success("Возвращено во входящие");
-	};
-	const toggleStar = (id: string) => setFlagM.mutate({ threadId: id });
-
-	// Toggle read/unread on a thread's inbound messages (real markRead).
-	const toggleThreadRead = (id: string) => {
-		if (id !== activeThreadId) return;
-		const anyUnread = messages.some(
-			(m) => m.direction === "inbound" && !m.isRead,
-		);
-		for (const m of messages) {
-			if (m.direction === "inbound") {
-				markRead.mutate({ messageId: m.id, isRead: anyUnread });
-			}
-		}
-	};
-
-	const markThreadUnread = () => {
-		const lastInbound = [...messages]
-			.reverse()
-			.find((m) => m.direction === "inbound");
-		if (lastInbound) {
-			markRead.mutate({ messageId: lastInbound.id, isRead: false });
-		}
-	};
-
-	// ---- Multi-select -------------------------------------------------------
-	const toggleSelect = (id: string) => {
-		setSelected((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	};
-	const clearSelection = () => setSelected(new Set());
-	const selectAll = () => setSelected(new Set(visibleThreads.map((t) => t.id)));
-
-	const bulkApply = (fn: (id: string) => void) => {
-		for (const id of selected) fn(id);
-		clearSelection();
-	};
-	const bulkArchive = () =>
-		bulkApply((id) => setFolderM.mutate({ threadId: id, folder: "archive" }));
-	const bulkTrash = () =>
-		bulkApply((id) => setFolderM.mutate({ threadId: id, folder: "trash" }));
-	const bulkRead = () =>
-		bulkApply((id) => {
-			// Mark the open thread's inbound messages read; others are invalidated by
-			// the listThreads refetch the folder mutation triggers elsewhere.
-			if (id === activeThreadId) {
-				for (const m of messages) {
-					if (m.direction === "inbound" && !m.isRead) {
-						markRead.mutate({ messageId: m.id, isRead: true });
-					}
-				}
-			}
-		});
-
-	// ---- Keyboard -----------------------------------------------------------
-	const moveSelection = (delta: number) => {
-		if (visibleThreads.length === 0) return;
-		const idx = visibleThreads.findIndex((t) => t.id === activeThreadId);
-		const next =
-			idx === -1
-				? 0
-				: Math.min(Math.max(idx + delta, 0), visibleThreads.length - 1);
-		setActiveThreadId(visibleThreads[next].id);
-	};
-
-	useMailKeyboard(
-		{
-			onNext: () => moveSelection(1),
-			onPrev: () => moveSelection(-1),
-			onOpen: () => {
-				if (!activeThreadId && visibleThreads[0]) {
-					setActiveThreadId(visibleThreads[0].id);
-				}
-			},
-			onBack: () => {
-				if (composeMode) closeComposer();
-				else setActiveThreadId(null);
-			},
-			onReply: () => openCompose("reply"),
-			onReplyAll: () => openCompose("replyAll"),
-			onArchive: () => {
-				if (activeThreadId) archiveThread(activeThreadId);
-			},
-			onTrash: () => {
-				if (activeThreadId) trashThread(activeThreadId);
-			},
-			onSearch: () => searchRef.current?.focus(),
-			onCompose: () => openCompose("new"),
-		},
-		// Disable nav while typing in the composer to avoid hijacking keys.
-		composeMode === null,
-	);
-
-	// Keep the ref pointed at the freshest closure (cheap, runs every render).
-	openComposeRef.current = openCompose;
-
-	// Cmd+N → compose (mirrors the header CTA + macOS new-message convention).
-	useEffect(() => {
-		const handler = (e: KeyboardEvent) => {
-			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
-				e.preventDefault();
-				openComposeRef.current("new");
-			}
-		};
-		window.addEventListener("keydown", handler);
-		return () => window.removeEventListener("keydown", handler);
-	}, []);
-
-	// ---- Toggle one message's expanded state --------------------------------
-	const toggleMessage = (id: string) => {
-		setExpandedIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	};
-
-	const composerProps =
-		composeMode !== null
-			? {
-					draft,
-					onChange: setDraft,
-					onSend: handleSend,
-					onCancel: closeComposer,
-					onSaveDraft: handleSaveDraft,
-					sending: send.isPending || presignM.isPending,
-					outboundDisabled,
-					title:
-						composeMode === "new"
-							? "Новое письмо"
-							: composeMode === "forward"
-								? "Переслать"
-								: composeMode === "replyAll"
-									? "Ответить всем"
-									: "Ответить",
-				}
-			: null;
-
-	const activeThreadStarred = activeThreadId
-		? Boolean(
-				(isSearching ? searchQuery.data : allThreads)?.find(
-					(t) => t.id === activeThreadId,
-				)?.isFlagged,
-			)
-		: false;
 
 	return (
-		<DashboardSurface width="full" bare>
-			<div className="h-full min-h-0">
-				<MailShell
-					header={
-						<MailHeader
-							accountEmail={session?.user?.email ?? null}
-							accountName={session?.user?.name ?? null}
-							mailboxAddress={mailboxAddress}
-							total={counts.total}
-							unread={counts.totalUnread}
-							search={search}
-							onSearchChange={setSearch}
-							searchRef={searchRef}
-							onCompose={() => openCompose("new")}
-						/>
-					}
-					rail={
-						<MailFolderRail
-							active={folder}
-							onSelect={(id) => {
-								setFolder(id);
-								setActiveThreadId(null);
-								clearSelection();
-							}}
-							onCompose={() => openCompose("new")}
-							counts={counts.byFolder}
-						/>
-					}
-					list={
-						folder === "drafts" && !isSearching ? (
-							<MailDraftsList
-								drafts={drafts}
-								onOpen={openSavedDraft}
-								onDelete={handleDeleteDraft}
-							/>
-						) : (
-							<MailThreadList
-								folder={folder}
-								threads={visibleThreads}
-								activeThreadId={activeThreadId}
-								onSelect={setActiveThreadId}
-								readFilter={readFilter}
-								onReadFilterChange={setReadFilter}
-								isLoading={
-									isSearching ? searchQuery.isLoading : threadsQuery.isLoading
-								}
-								flagged={Object.fromEntries(
-									visibleThreads
-										.filter((t) => t.isFlagged)
-										.map((t) => [t.id, true as const]),
-								)}
-								selected={selected}
-								onToggleSelect={toggleSelect}
-								onClearSelection={clearSelection}
-								onSelectAll={selectAll}
-								onBulkArchive={bulkArchive}
-								onBulkTrash={bulkTrash}
-								onBulkRead={bulkRead}
-								actions={{
-									onArchive: archiveThread,
-									onTrash: trashThread,
-									onRestore: restoreThread,
-									onToggleRead: toggleThreadRead,
-									onToggleStar: toggleStar,
-								}}
-							/>
-						)
-					}
-					reader={
-						<MailThreadReader
-							thread={thread}
-							messages={messages}
-							expandedIds={expandedIds}
-							onToggleMessage={toggleMessage}
-							isLoading={threadQuery.isLoading}
-							error={
-								threadsQuery.isError
-									? threadsQuery.error.message
-									: threadQuery.isError
-										? threadQuery.error.message
-										: null
-							}
-							onRetry={() => {
-								if (threadsQuery.isError) threadsQuery.refetch();
-								if (threadQuery.isError) threadQuery.refetch();
-							}}
-							onReply={() => openCompose("reply")}
-							onReplyAll={() => openCompose("replyAll")}
-							onForward={() => openCompose("forward")}
-							onArchive={() => {
-								if (activeThreadId) archiveThread(activeThreadId);
-							}}
-							onTrash={() => {
-								if (activeThreadId) trashThread(activeThreadId);
-							}}
-							onSpam={() => {
-								if (activeThreadId) spamThread(activeThreadId);
-							}}
-							onToggleStar={() => {
-								if (activeThreadId) toggleStar(activeThreadId);
-							}}
-							onMarkUnread={markThreadUnread}
-							onBack={() => setActiveThreadId(null)}
-							starred={activeThreadStarred}
-							composer={composerProps}
-						/>
-					}
+		<SuiteScreen
+			title="Почта"
+			description="Входящие, чтение и отправка"
+			icon={Mail}
+			actions={
+				<Button onClick={() => setComposeOpen(true)}>
+					<PenSquare className="size-4" /> Написать
+				</Button>
+			}
+		>
+			{threadsQuery.isError && (
+				<SuiteQueryError
+					message={threadsQuery.error.message}
+					onRetry={() => threadsQuery.refetch()}
 				/>
+			)}
+
+			<div className="mb-4 grid w-full gap-3 rounded-lg border border-border bg-card/80 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
+				<div className="flex min-w-0 items-center gap-3">
+					<div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+						<UserRound className="size-4" />
+					</div>
+					<div className="min-w-0">
+						<p className="truncate text-sm font-medium">{loginName}</p>
+						<p className="truncate text-muted-foreground text-xs">
+							Вход выполнен: {loginEmail}
+						</p>
+					</div>
+				</div>
+				<div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-background/70 px-3 py-2">
+					<div className="flex min-w-0 items-center gap-2">
+						<AtSign className="size-4 shrink-0 text-muted-foreground" />
+						<div className="min-w-0">
+							<p className="truncate text-sm font-medium">{mailboxAddress}</p>
+							<p className="truncate text-muted-foreground text-xs">
+								Адрес для входящих и исходящих писем Rox
+							</p>
+						</div>
+					</div>
+					<Badge variant={mailbox?.status === "active" ? "default" : "outline"}>
+						{mailboxStatus}
+					</Badge>
+				</div>
 			</div>
-		</DashboardSurface>
+
+			{threads.length === 0 && threadsQuery.isLoading && (
+				<div className="space-y-2">
+					{[0, 1, 2, 3].map((i) => (
+						<Skeleton key={i} className="h-14 w-full" />
+					))}
+				</div>
+			)}
+
+			{threads.length === 0 && threadsQuery.isSuccess && (
+				<div className="flex flex-col items-center justify-center rounded-lg border border-border border-dashed py-20 text-center">
+					<Mail className="mb-3 size-8 text-muted-foreground" />
+					<span className="text-foreground text-sm">Входящих нет</span>
+					<span className="mt-1 max-w-sm text-muted-foreground text-xs">
+						Когда придут письма, они появятся здесь.
+					</span>
+				</div>
+			)}
+
+			{threads.length > 0 && (
+				<div className="flex h-[calc(100vh-220px)] min-h-96 min-w-0 gap-4">
+					<div className="w-[clamp(20rem,28vw,26rem)] min-w-72 max-w-[45vw] resize-x overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-card/80">
+						{threads.map((thread) => (
+							<button
+								key={thread.id}
+								type="button"
+								onClick={() => setActiveThreadId(thread.id)}
+								className={cn(
+									"flex w-full flex-col gap-0.5 border-border border-b px-3 py-2.5 text-left last:border-b-0 transition-colors hover:bg-accent/40",
+									thread.id === activeThreadId && "bg-accent",
+								)}
+							>
+								<div className="flex items-center justify-between gap-2">
+									<span className="truncate text-sm font-medium">
+										{thread.subjectNorm?.trim() || "(без темы)"}
+									</span>
+									<span className="shrink-0 text-[10px] text-muted-foreground">
+										{formatDateTime(thread.lastMessageAt)}
+									</span>
+								</div>
+								<span className="text-muted-foreground text-xs">
+									{thread.messageCount} сообщ.
+								</span>
+							</button>
+						))}
+					</div>
+
+					<div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-card/80">
+						{activeThreadId === null ? (
+							<div className="flex h-full flex-col items-center justify-center text-center">
+								<Mail className="mb-3 size-8 text-muted-foreground" />
+								<span className="text-muted-foreground text-sm">
+									Выберите переписку
+								</span>
+							</div>
+						) : threadQuery.isError ? (
+							<p className="cursor-text select-text p-4 text-destructive text-sm">
+								{threadQuery.error.message}
+							</p>
+						) : threadQuery.isLoading && messages.length === 0 ? (
+							<div className="space-y-3 p-4">
+								<Skeleton className="h-6 w-1/2" />
+								<Skeleton className="h-20 w-full" />
+							</div>
+						) : (
+							<div className="h-full overflow-y-auto p-4">
+								<div className="space-y-3">
+									{messages.map((message) => {
+										const isOutbound = message.direction === "outbound";
+										const timestamp =
+											message.receivedAt ??
+											message.sentAt ??
+											message.createdAt ??
+											null;
+										return (
+											<div
+												key={message.id}
+												className="rounded-lg border border-border bg-card"
+											>
+												<div className="flex items-start justify-between gap-2 border-border border-b px-3 py-2">
+													<div className="flex min-w-0 flex-col">
+														<span className="flex items-center gap-2">
+															<span className="truncate text-sm font-medium">
+																{isOutbound
+																	? "Вы"
+																	: (message.fromName ?? message.fromAddr)}
+															</span>
+															<Badge
+																variant="outline"
+																className="shrink-0 gap-1 px-1.5 py-0 text-[10px]"
+															>
+																{isOutbound ? (
+																	<ArrowUpRight className="size-2.5" />
+																) : (
+																	<ArrowDownLeft className="size-2.5" />
+																)}
+																{isOutbound ? "Исходящее" : "Входящее"}
+															</Badge>
+															{!message.isRead && !isOutbound && (
+																<span className="size-1.5 shrink-0 rounded-full bg-primary" />
+															)}
+														</span>
+														<span className="truncate text-[11px] text-muted-foreground">
+															{message.subject?.trim() || "(без темы)"}
+														</span>
+													</div>
+													<div className="flex shrink-0 items-center gap-2">
+														<span className="text-[10px] text-muted-foreground">
+															{formatDateTime(timestamp)}
+														</span>
+														{!message.isRead && !isOutbound && (
+															<Button
+																size="sm"
+																variant="ghost"
+																className="h-6 px-2 text-[10px]"
+																disabled={markRead.isPending}
+																onClick={() =>
+																	markRead.mutate({
+																		messageId: message.id,
+																		isRead: true,
+																	})
+																}
+															>
+																Прочитано
+															</Button>
+														)}
+													</div>
+												</div>
+												{/* Full body from R2 (FEATURE A): sanitized HTML or text. */}
+												<MailMessageBody
+													messageId={message.id}
+													snippet={message.snippet ?? null}
+													hasAttachments={message.hasAttachments ?? false}
+												/>
+											</div>
+										);
+									})}
+								</div>
+							</div>
+						)}
+					</div>
+				</div>
+			)}
+
+			<Dialog open={composeOpen} onOpenChange={setComposeOpen}>
+				<DialogContent className="max-h-[min(720px,calc(100dvh-2rem))] overflow-y-auto">
+					<DialogHeader>
+						<DialogTitle>Новое письмо</DialogTitle>
+						<DialogDescription>
+							Отправка с вашего адреса @rox.one.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="flex flex-col gap-3">
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="mail-to">Кому</Label>
+							<Input
+								id="mail-to"
+								value={to}
+								onChange={(e) => setTo(e.target.value)}
+								placeholder="name@example.com, …"
+								type="email"
+							/>
+						</div>
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="mail-subject">Тема</Label>
+							<Input
+								id="mail-subject"
+								value={subject}
+								onChange={(e) => setSubject(e.target.value)}
+								placeholder="Тема письма"
+							/>
+						</div>
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="mail-body">Текст</Label>
+							<Textarea
+								id="mail-body"
+								value={body}
+								onChange={(e) => setBody(e.target.value)}
+								placeholder="Текст письма…"
+								rows={8}
+							/>
+						</div>
+					</div>
+					<DialogFooter>
+						<Button
+							disabled={!to.trim() || !body.trim() || send.isPending}
+							onClick={handleSend}
+						>
+							<Send className="size-4" /> Отправить
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</SuiteScreen>
+	);
+}
+
+/** Human-readable byte size for an attachment row. */
+function formatSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+interface MailMessageBodyProps {
+	messageId: string;
+	snippet: string | null;
+	hasAttachments: boolean;
+}
+
+/**
+ * The full body + attachments of one email message (FEATURE A). Fetches the body
+ * from R2 via `useMailBody`: HTML is sanitized with DOMPurify then injected into
+ * an isolated clipped container; text renders as escaped plain text. Attachment
+ * metadata loads via `mail.getMessage`; each is downloaded through a presigned
+ * `mail.getAttachmentUrl`, opened in the default browser.
+ */
+function MailMessageBody({
+	messageId,
+	snippet,
+	hasAttachments,
+}: MailMessageBodyProps) {
+	const trpc = useTRPC();
+	const bodyQuery = useMailBody(messageId, true);
+	const sanitizedHtml = useMemo(() => {
+		if (bodyQuery.data?.kind !== "html") return null;
+		return sanitizeMailHtml(bodyQuery.data.content);
+	}, [bodyQuery.data]);
+
+	const detail = useQuery({
+		...trpc.mail.getMessage.queryOptions({ messageId }),
+		enabled: hasAttachments,
+	});
+	const attachments = detail.data?.attachments ?? [];
+
+	const attachmentUrl = useMutation(
+		trpc.mail.getAttachmentUrl.mutationOptions({
+			onSuccess: ({ url }) => {
+				window.open(url, "_blank", "noopener,noreferrer");
+			},
+			onError: (error) => {
+				logger.error("[EmailView] attachment presign failed", error);
+			},
+		}),
+	);
+
+	return (
+		<div className="px-3 py-3">
+			{bodyQuery.isLoading ? (
+				<p className="cursor-text select-text whitespace-pre-wrap break-words text-muted-foreground text-sm">
+					Загрузка письма…
+				</p>
+			) : sanitizedHtml !== null ? (
+				<div
+					className="mail-html-body max-h-[60vh] cursor-text select-text overflow-auto break-words text-sm [&_a]:underline [&_img]:max-w-full"
+					// Sanitized via DOMPurify in sanitizeMailHtml; rendered in an isolated,
+					// clipped container so even valid markup stays bounded.
+					// biome-ignore lint/security/noDangerouslySetInnerHtml: content is DOMPurify-sanitized
+					dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+				/>
+			) : (
+				<p className="cursor-text select-text whitespace-pre-wrap break-words text-sm">
+					{bodyQuery.data?.content?.trim() ||
+						snippet?.trim() ||
+						"Текст письма недоступен в предпросмотре."}
+				</p>
+			)}
+
+			{hasAttachments && attachments.length > 0 && (
+				<div className="mt-3 flex flex-col gap-1.5">
+					<span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+						<Paperclip className="size-3" /> Вложения
+					</span>
+					{attachments.map((att) => (
+						<button
+							key={att.id}
+							type="button"
+							disabled={attachmentUrl.isPending}
+							onClick={() => attachmentUrl.mutate({ attachmentId: att.id })}
+							className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-left transition-colors hover:bg-muted disabled:opacity-60"
+							title={`${att.contentType} · скачать`}
+						>
+							<Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
+							<span className="truncate text-xs font-medium">
+								{att.filename}
+							</span>
+							<span className="shrink-0 text-[10px] text-muted-foreground">
+								{formatSize(att.sizeBytes)}
+							</span>
+							<Download className="size-3 shrink-0 text-muted-foreground" />
+						</button>
+					))}
+				</div>
+			)}
+		</div>
 	);
 }

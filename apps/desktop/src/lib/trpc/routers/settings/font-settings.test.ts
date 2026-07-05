@@ -8,7 +8,7 @@ describe("font settings validation", () => {
 	describe("font size validation (range 10-24)", () => {
 		it("accepts font size at minimum (10)", () => {
 			const result = setFontSettingsSchema.safeParse({
-				terminalFontSize: 10,
+				uiFontSize: 10,
 			});
 			expect(result.success).toBe(true);
 		});
@@ -22,6 +22,7 @@ describe("font settings validation", () => {
 
 		it("accepts font size in the middle of range", () => {
 			const result = setFontSettingsSchema.safeParse({
+				uiFontSize: 12,
 				terminalFontSize: 14,
 				editorFontSize: 16,
 			});
@@ -75,10 +76,10 @@ describe("font settings validation", () => {
 	describe("font family trimming", () => {
 		it("trims whitespace from font family", () => {
 			const input = setFontSettingsSchema.parse({
-				terminalFontFamily: "  JetBrains Mono  ",
+				uiFontFamily: "  Inter  ",
 			});
 			const result = transformFontSettings(input);
-			expect(result.terminalFontFamily).toBe("JetBrains Mono");
+			expect(result.uiFontFamily).toBe("Inter");
 		});
 
 		it("trims whitespace from editor font family", () => {
@@ -91,10 +92,12 @@ describe("font settings validation", () => {
 
 		it("accepts valid font families without modification", () => {
 			const input = setFontSettingsSchema.parse({
+				uiFontFamily: "Inter",
 				terminalFontFamily: "JetBrains Mono",
 				editorFontFamily: "Fira Code",
 			});
 			const result = transformFontSettings(input);
+			expect(result.uiFontFamily).toBe("Inter");
 			expect(result.terminalFontFamily).toBe("JetBrains Mono");
 			expect(result.editorFontFamily).toBe("Fira Code");
 		});
@@ -123,10 +126,10 @@ describe("font settings validation", () => {
 	describe("empty string as null (reset)", () => {
 		it("treats empty string font family as null", () => {
 			const input = setFontSettingsSchema.parse({
-				terminalFontFamily: "",
+				uiFontFamily: "",
 			});
 			const result = transformFontSettings(input);
-			expect(result.terminalFontFamily).toBeNull();
+			expect(result.uiFontFamily).toBeNull();
 		});
 
 		it("treats whitespace-only font family as null", () => {
@@ -153,6 +156,7 @@ describe("font settings validation", () => {
 			});
 			const result = transformFontSettings(input);
 			expect(result.terminalFontFamily).toBe("Fira Code");
+			expect(result).not.toHaveProperty("uiFontFamily");
 			expect(result).not.toHaveProperty("editorFontFamily");
 			expect(result).not.toHaveProperty("terminalFontSize");
 			expect(result).not.toHaveProperty("editorFontSize");

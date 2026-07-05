@@ -39,6 +39,7 @@ describe("terminal router integration", () => {
 			HOME: process.env.HOME ?? tmpdir(),
 			SHELL: "/bin/sh",
 		});
+		__setAccountShellForTesting("/bin/sh");
 		scenario = await createBasicScenario();
 	});
 
@@ -225,7 +226,11 @@ describe("terminal router integration", () => {
 				),
 			);
 
-			await waitFor(() => readPositivePidFile(pidPath) !== null, 3000);
+			await waitFor(
+				() => readPositivePidFile(pidPath) !== null,
+				3000,
+				() => describePidState("helper pid file was not created", helperPid),
+			);
 			helperPid = readPositivePidFile(pidPath);
 			expect(helperPid).not.toBeNull();
 			expect(isPidAlive(helperPid as number)).toBe(true);
@@ -235,7 +240,11 @@ describe("terminal router integration", () => {
 				terminalId,
 			});
 
-			await waitFor(() => !isPidAlive(helperPid as number), 3000);
+			await waitFor(
+				() => !isPidAlive(helperPid as number),
+				3000,
+				() => describePidState("helper after killSession", helperPid),
+			);
 
 			await scenario.host.trpc.terminal.createSession.mutate({
 				workspaceId: scenario.workspaceId,
@@ -251,6 +260,11 @@ describe("terminal router integration", () => {
 			await waitFor(
 				() => readPositivePidFile(workspaceCleanupPidPath) !== null,
 				3000,
+				() =>
+					describePidState(
+						"workspace cleanup helper pid file was not created",
+						workspaceCleanupHelperPid,
+					),
 			);
 			workspaceCleanupHelperPid = readPositivePidFile(workspaceCleanupPidPath);
 			expect(workspaceCleanupHelperPid).not.toBeNull();
@@ -267,6 +281,11 @@ describe("terminal router integration", () => {
 			await waitFor(
 				() => !isPidAlive(workspaceCleanupHelperPid as number),
 				3000,
+				() =>
+					describePidState(
+						"workspace cleanup helper after disposeSessionsByWorkspaceId",
+						workspaceCleanupHelperPid,
+					),
 			);
 		} finally {
 			if (helperPid !== null && helperPid > 0 && isPidAlive(helperPid)) {
@@ -484,6 +503,24 @@ function isPidAlive(pid: number): boolean {
 	} catch (error) {
 		return (error as NodeJS.ErrnoException).code === "EPERM";
 	}
+}
+
+function describePidState(label: string, pid: number | null): string {
+	const ps = spawnSync("ps", ["-axo", "pid=,ppid=,pgid=,stat=,command="], {
+		encoding: "utf8",
+	});
+	const rows = ps.stdout
+		.split("\n")
+		.filter((line) =>
+			pid === null ? false : line.trim().startsWith(`${pid} `),
+		)
+		.join("\n");
+	return [
+		`${label} did not exit`,
+		`pid: ${pid ?? "null"}`,
+		`psStatus: ${ps.status}`,
+		`psRows:\n${rows}`,
+	].join("\n");
 }
 
 async function waitFor(

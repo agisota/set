@@ -112,6 +112,18 @@ mock.module("./app-environment", () => ({
 	ROX_HOME_DIR: testRoxHomeRoot,
 }));
 
+const getProcessEnvWithShellPathMock = mock(
+	async (baseEnv: NodeJS.ProcessEnv = process.env) => {
+		const env: Record<string, string> = {};
+		for (const [key, value] of Object.entries(baseEnv)) {
+			if (typeof value === "string") {
+				env[key] = value;
+			}
+		}
+		return env;
+	},
+);
+
 const { HostServiceCoordinator } = await import("./host-service-coordinator");
 
 const baseManifest = (pid: number, endpoint = "http://127.0.0.1:55555") => ({
@@ -148,6 +160,7 @@ function resetMocks(): void {
 	killProcessMock.mockClear();
 	pollHealthCheckMock.mockClear();
 	childProcessSpawnMock.mockClear();
+	getProcessEnvWithShellPathMock.mockClear();
 	killedPids = [];
 	killProcessError = null;
 	fs.rmSync(path.join(testRoxHomeRoot, "host-service.log"), { force: true });
@@ -177,13 +190,19 @@ function createFakeChild(pid: number): FakeHostChild {
 	}) as unknown as FakeHostChild;
 }
 
+function createCoordinator(): InstanceType<typeof HostServiceCoordinator> {
+	return new HostServiceCoordinator({
+		resolveChildEnv: getProcessEnvWithShellPathMock,
+	});
+}
+
 describe("HostServiceCoordinator preferred ports", () => {
 	let coordinator: InstanceType<typeof HostServiceCoordinator>;
 
 	beforeEach(() => {
 		resetMocks();
 		testManifestRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hsc-test-"));
-		coordinator = new HostServiceCoordinator();
+		coordinator = createCoordinator();
 	});
 
 	afterEach(() => {
@@ -224,7 +243,7 @@ describe("HostServiceCoordinator child diagnostics", () => {
 	beforeEach(() => {
 		resetMocks();
 		testManifestRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hsc-test-"));
-		coordinator = new HostServiceCoordinator();
+		coordinator = createCoordinator();
 	});
 
 	afterEach(() => {
@@ -279,7 +298,7 @@ describe("HostServiceCoordinator.reset", () => {
 		resetMocks();
 		testManifestRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hsc-test-"));
 
-		coordinator = new HostServiceCoordinator();
+		coordinator = createCoordinator();
 		spawnMock = mock(async () => ({
 			port: 60000,
 			secret: "fresh-secret",

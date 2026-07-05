@@ -1,718 +1,310 @@
-import {
-	closestCenter,
-	DndContext,
-	type DragEndEvent,
-	KeyboardSensor,
-	PointerSensor,
-	useSensor,
-	useSensors,
-} from "@dnd-kit/core";
-import {
-	arrayMove,
-	SortableContext,
-	sortableKeyboardCoordinates,
-	verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import type { SelectSavedPrompt } from "@rox/local-db";
 import { Button } from "@rox/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@rox/ui/dialog";
 import { Input } from "@rox/ui/input";
-import { Kbd } from "@rox/ui/kbd";
-import { ease, motionDuration } from "@rox/ui/motion";
 import { toast } from "@rox/ui/sonner";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@rox/ui/tooltip";
+import { Textarea } from "@rox/ui/textarea";
 import { cn } from "@rox/ui/utils";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { motion } from "framer-motion";
+import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import {
-	useCallback,
-	useDeferredValue,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
-import { LuLayoutList, LuPlus, LuRows3, LuSearch } from "react-icons/lu";
-import { DashboardSurface } from "renderer/components/DashboardSurface";
+	LuBookmarkPlus,
+	LuCopy,
+	LuMessageSquarePlus,
+	LuPencil,
+	LuPlus,
+	LuTrash2,
+} from "react-icons/lu";
 import { useCopyToClipboard } from "renderer/hooks/useCopyToClipboard";
-import { createPromptSearch } from "../../lib/prompt-search";
-import { type PromptEntry, RAIL_ALL, type RailFilter } from "../../lib/types";
-import { useInsertPrompt } from "../../lib/use-insert-prompt";
-import { useSavedPrompts } from "../../lib/use-saved-prompts";
-import { useVariableCache } from "../../lib/use-variable-cache";
-import { hasVariables, renderPrompt } from "../../lib/variables";
-import type { DefaultPrompt } from "./default-prompts";
-import { EmptySeedGallery } from "./EmptySeedGallery";
-import { folderFromDroppableId, LeftRail } from "./LeftRail";
-import {
-	type EditorState,
-	PromptEditorDialog,
-	type PromptEditorSubmit,
-} from "./PromptEditorDialog";
-import { QuickPicker } from "./QuickPicker";
-import { SkeletonCards } from "./SkeletonCards";
-import { SortablePromptRow } from "./SortablePromptRow";
-import { TagFilterRow } from "./TagFilterRow";
-import {
-	VariableFillDrawer,
-	type VariableFillTarget,
-} from "./VariableFillDrawer";
+import { electronTrpc } from "renderer/lib/electron-trpc";
+import { useQuickChatDraftStore } from "renderer/stores/quick-chat-draft";
+import { DEFAULT_SAVED_PROMPTS } from "./default-prompts";
 
-type Density = "comfortable" | "compact";
-
-/** "Recently used within the last N days" window for the «Недавние» rail. */
-const RECENT_WINDOW_MS = 1000 * 60 * 60 * 24 * 14;
-
-/**
- * Opacity-only entrance for virtualized rows. The virtualizer owns each row's
- * vertical placement via an inline `translateY`, so the entrance must NOT touch
- * the transform (a `y` offset would fight that positioning). Applied as discrete
- * `initial`/`animate`/`transition` props rather than a `Variants` map.
- */
-const listFade = {
-	initial: { opacity: 0 },
-	animate: { opacity: 1 },
-	transition: { duration: motionDuration.base, ease: ease.standard },
-} as const;
-
-/** Manual-order comparator: explicit `position` first (nulls last), then recency. */
-function byManualOrder(a: PromptEntry, b: PromptEntry): number {
-	const pa = a.position;
-	const pb = b.position;
-	if (pa !== null && pb !== null) return pa - pb;
-	if (pa !== null) return -1;
-	if (pb !== null) return 1;
-	return b.updatedAt - a.updatedAt;
-}
+type DialogState =
+	| { mode: "closed" }
+	| { mode: "create" }
+	| { mode: "edit"; prompt: SelectSavedPrompt };
 
 export function SavedPromptsView() {
-	const {
-		entries,
-		allTags,
-		allFolders,
-		isLoading,
-		isError,
-		refetch,
-		createPrompt,
-		updatePrompt,
-		deletePrompt,
-		toggleFavorite,
-		moveToFolder,
-		reorder,
-		incrementUse,
-		isCreating,
-		isUpdating,
-	} = useSavedPrompts();
-
+	const navigate = useNavigate();
+	const utils = electronTrpc.useUtils();
 	const { copyToClipboard } = useCopyToClipboard();
-	const { insert } = useInsertPrompt();
-	const variableCache = useVariableCache();
+	const stagePrompt = useQuickChatDraftStore((state) => state.stagePrompt);
 
-	const [query, setQuery] = useState("");
-	const deferredQuery = useDeferredValue(query);
-	const [railFilter, setRailFilter] = useState<RailFilter>(RAIL_ALL);
-	const [selectedTags, setSelectedTags] = useState<string[]>([]);
-	const [density, setDensity] = useState<Density>("comfortable");
-	const [editor, setEditor] = useState<EditorState>({ mode: "closed" });
-	const [fillTarget, setFillTarget] = useState<VariableFillTarget | null>(null);
-	const [pickerOpen, setPickerOpen] = useState(false);
-	/** Local optimistic order applied while a reorder write is in flight. */
-	const [orderOverride, setOrderOverride] = useState<string[] | null>(null);
+	const { data: prompts = [], isLoading } =
+		electronTrpc.savedPrompts.list.useQuery();
 
-	const searchRef = useRef<HTMLInputElement>(null);
-	const scrollRef = useRef<HTMLDivElement>(null);
+	const [dialog, setDialog] = useState<DialogState>({ mode: "closed" });
+	const [title, setTitle] = useState("");
+	const [body, setBody] = useState("");
 
-	const sensors = useSensors(
-		useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-		useSensor(KeyboardSensor, {
-			coordinateGetter: sortableKeyboardCoordinates,
-		}),
-	);
+	const invalidate = () => {
+		void utils.savedPrompts.list.invalidate();
+	};
 
-	// ── Derived counts for the rail ──────────────────────────────────────────
-	const favoriteCount = useMemo(
-		() => entries.filter((entry) => entry.favorite).length,
-		[entries],
-	);
-	const recentCount = useMemo(
-		() =>
-			entries.filter(
-				(entry) =>
-					entry.lastUsedAt !== null &&
-					Date.now() - entry.lastUsedAt < RECENT_WINDOW_MS,
-			).length,
-		[entries],
-	);
-	const frequentCount = useMemo(
-		() => entries.filter((entry) => entry.useCount > 0).length,
-		[entries],
-	);
-	const unfiledCount = useMemo(
-		() => entries.filter((entry) => entry.folder === null).length,
-		[entries],
-	);
-	const tagCounts = useMemo(() => {
-		const counts = new Map<string, number>();
-		for (const entry of entries) {
-			for (const tag of entry.tags) {
-				counts.set(tag, (counts.get(tag) ?? 0) + 1);
-			}
-		}
-		return allTags.map((tag) => ({ tag, count: counts.get(tag) ?? 0 }));
-	}, [entries, allTags]);
-	const folderCounts = useMemo(() => {
-		const counts = new Map<string, number>();
-		for (const entry of entries) {
-			if (entry.folder)
-				counts.set(entry.folder, (counts.get(entry.folder) ?? 0) + 1);
-		}
-		return allFolders.map((folder) => ({
-			folder,
-			count: counts.get(folder) ?? 0,
-		}));
-	}, [entries, allFolders]);
-
-	// ── Filter → search → sort pipeline ──────────────────────────────────────
-	const railFiltered = useMemo(() => {
-		switch (railFilter.kind) {
-			case "favorites":
-				return entries.filter((entry) => entry.favorite);
-			case "recent":
-				return entries
-					.filter((entry) => entry.lastUsedAt !== null)
-					.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0));
-			case "frequent":
-				return entries
-					.filter((entry) => entry.useCount > 0)
-					.sort((a, b) => b.useCount - a.useCount);
-			case "tag":
-				return entries.filter((entry) => entry.tags.includes(railFilter.tag));
-			case "folder":
-				return entries.filter((entry) =>
-					railFilter.folder === ""
-						? entry.folder === null
-						: entry.folder === railFilter.folder,
-				);
-			default:
-				return entries;
-		}
-	}, [entries, railFilter]);
-
-	const tagFiltered = useMemo(() => {
-		if (selectedTags.length === 0) return railFiltered;
-		return railFiltered.filter((entry) =>
-			selectedTags.every((tag) => entry.tags.includes(tag)),
-		);
-	}, [railFiltered, selectedTags]);
-
-	const search = useMemo(() => createPromptSearch(tagFiltered), [tagFiltered]);
-	const searched = useMemo(
-		() => search.search(deferredQuery),
-		[search, deferredQuery],
-	);
-
-	// Manual drag-order is only meaningful on a plain (unsearched, untag-filtered)
-	// rail view. Recent/frequent keep their own sort; search keeps relevance.
-	const isManualOrder =
-		(railFilter.kind === "all" || railFilter.kind === "folder") &&
-		selectedTags.length === 0 &&
-		deferredQuery.trim().length === 0;
-
-	const visiblePrompts = useMemo(() => {
-		if (!isManualOrder) return searched;
-		const sorted = [...searched].sort(byManualOrder);
-		if (orderOverride === null) return sorted;
-		const byId = new Map(sorted.map((entry) => [entry.id, entry]));
-		const ordered = orderOverride
-			.map((id) => byId.get(id))
-			.filter((entry): entry is PromptEntry => entry !== undefined);
-		// Append any not covered by the override (e.g. freshly created).
-		for (const entry of sorted) {
-			if (!orderOverride.includes(entry.id)) ordered.push(entry);
-		}
-		return ordered;
-	}, [searched, isManualOrder, orderOverride]);
-
-	const visibleIds = useMemo(
-		() => visiblePrompts.map((entry) => entry.id),
-		[visiblePrompts],
-	);
-
-	// Drop the optimistic override once the server data reflects it.
-	useEffect(() => {
-		if (orderOverride === null) return;
-		const settled =
-			orderOverride.length === visibleIds.length &&
-			orderOverride.every((id, index) => visibleIds[index] === id);
-		if (settled) setOrderOverride(null);
-	}, [orderOverride, visibleIds]);
-
-	// ── Virtualization ───────────────────────────────────────────────────────
-	const rowHeight = density === "compact" ? 96 : 132;
-	const virtualizer = useVirtualizer({
-		count: visiblePrompts.length,
-		getScrollElement: () => scrollRef.current,
-		estimateSize: () => rowHeight,
-		overscan: 8,
+	const createMutation = electronTrpc.savedPrompts.create.useMutation({
+		onSuccess: () => {
+			invalidate();
+			setDialog({ mode: "closed" });
+			toast.success("Промпт сохранён");
+		},
+		onError: (error) => toast.error(`Не удалось сохранить: ${error.message}`),
 	});
 
-	// ── Insert / copy with variable handling ─────────────────────────────────
-	const finishInsert = useCallback(
-		(prompt: PromptEntry, text: string, cursor: number | null = null) => {
-			const outcome = insert({ text, cursor });
-			incrementUse(prompt);
-			if (outcome.mode === "in-place") {
-				toast.success("Промпт вставлен");
-			} else {
-				void copyToClipboard(text);
-				toast.success("Промпт скопирован — откройте чат, чтобы вставить");
-			}
+	const updateMutation = electronTrpc.savedPrompts.update.useMutation({
+		onSuccess: () => {
+			invalidate();
+			setDialog({ mode: "closed" });
+			toast.success("Промпт обновлён");
 		},
-		[insert, incrementUse, copyToClipboard],
-	);
+		onError: (error) => toast.error(`Не удалось обновить: ${error.message}`),
+	});
 
-	const finishCopy = useCallback(
-		(prompt: PromptEntry, text: string) => {
-			void copyToClipboard(text);
-			incrementUse(prompt);
-			toast.success("Скопировано в буфер обмена");
+	const deleteMutation = electronTrpc.savedPrompts.delete.useMutation({
+		onSuccess: () => {
+			invalidate();
+			toast.success("Промпт удалён");
 		},
-		[copyToClipboard, incrementUse],
-	);
+		onError: (error) => toast.error(`Не удалось удалить: ${error.message}`),
+	});
 
-	const handleInsert = useCallback(
-		(prompt: PromptEntry) => {
-			if (hasVariables(prompt.body)) {
-				setFillTarget({ prompt, action: "insert" });
-				return;
-			}
-			const { text, cursor } = renderPrompt(prompt.body, {});
-			finishInsert(prompt, text, cursor);
-		},
-		[finishInsert],
-	);
+	const openCreate = () => {
+		setTitle("");
+		setBody("");
+		setDialog({ mode: "create" });
+	};
 
-	const handleCopy = useCallback(
-		(prompt: PromptEntry) => {
-			if (hasVariables(prompt.body)) {
-				setFillTarget({ prompt, action: "copy" });
-				return;
-			}
-			finishCopy(prompt, renderPrompt(prompt.body, {}).text);
-		},
-		[finishCopy],
-	);
+	const openEdit = (prompt: SelectSavedPrompt) => {
+		setTitle(prompt.title);
+		setBody(prompt.body);
+		setDialog({ mode: "edit", prompt });
+	};
 
-	const handleFillCommit = useCallback(
-		(
-			target: VariableFillTarget,
-			renderedText: string,
-			values: Record<string, string>,
-			cursor: number | null,
-		) => {
-			variableCache.write(target.prompt.id, values);
-			if (target.action === "insert") {
-				finishInsert(target.prompt, renderedText, cursor);
-			} else {
-				finishCopy(target.prompt, renderedText);
-			}
-			setFillTarget(null);
-		},
-		[variableCache, finishInsert, finishCopy],
-	);
+	const handleSubmit = () => {
+		const trimmedTitle = title.trim();
+		if (trimmedTitle.length === 0 || body.trim().length === 0) {
+			toast.error("Заполните название и текст промпта");
+			return;
+		}
+		if (dialog.mode === "create") {
+			createMutation.mutate({ title: trimmedTitle, body });
+		} else if (dialog.mode === "edit") {
+			updateMutation.mutate({
+				id: dialog.prompt.id,
+				title: trimmedTitle,
+				body,
+			});
+		}
+	};
 
-	// ── CRUD handlers ────────────────────────────────────────────────────────
-	const handleEditorSubmit = useCallback(
-		(submit: PromptEditorSubmit) => {
-			const onDone = (verb: string) => () => {
-				setEditor({ mode: "closed" });
-				toast.success(verb);
-			};
-			if (submit.id) {
-				void updatePrompt({
-					id: submit.id,
-					title: submit.title,
-					body: submit.body,
-					folder: submit.folder,
-					tags: submit.tags,
-					favorite: submit.favorite,
-				}).then(onDone("Промпт обновлён"));
-			} else {
-				void createPrompt({
-					title: submit.title,
-					body: submit.body,
-					folder: submit.folder,
-					tags: submit.tags,
-					favorite: submit.favorite,
-				}).then(onDone("Промпт сохранён"));
-			}
-		},
-		[createPrompt, updatePrompt],
-	);
+	const handleUseInChat = (prompt: SelectSavedPrompt) => {
+		stagePrompt(prompt.body);
+		navigate({ to: "/quick-chat" });
+	};
 
-	const handleDuplicate = useCallback((prompt: PromptEntry) => {
-		setEditor({
-			mode: "create",
-			seed: {
-				title: `${prompt.title} (копия)`,
-				body: prompt.body,
-				folder: prompt.folder,
-				tags: prompt.tags,
-				favorite: false,
-			},
-		});
-	}, []);
-
-	const handleSeedSave = useCallback(
-		(example: DefaultPrompt) => {
-			void createPrompt({ title: example.title, body: example.body }).then(() =>
-				toast.success("Промпт сохранён"),
-			);
-		},
-		[createPrompt],
-	);
-
-	const handleCreateFolder = useCallback((folder: string) => {
-		setRailFilter({ kind: "folder", folder });
-		setEditor({
-			mode: "create",
-			seed: { title: "", body: "", folder, tags: [], favorite: false },
-		});
-	}, []);
-
-	const handleMoveToFolder = useCallback(
-		(prompt: PromptEntry, folder: string | null) => {
-			void moveToFolder(prompt, folder).then(() =>
-				toast.success(folder ? `Перемещено в «${folder}»` : "Убрано из папки"),
-			);
-		},
-		[moveToFolder],
-	);
-
-	// ── Drag-and-drop: reorder (over a card) or file (over a folder rail) ─────
-	const handleDragEnd = useCallback(
-		(event: DragEndEvent) => {
-			const { active, over } = event;
-			if (!over) return;
-			const activeId = String(active.id);
-			const overId = String(over.id);
-
-			// Dropped onto a folder rail → file the prompt there.
-			const targetFolder = folderFromDroppableId(overId);
-			if (targetFolder !== undefined) {
-				const prompt = entries.find((entry) => entry.id === activeId);
-				if (prompt && prompt.folder !== targetFolder) {
-					handleMoveToFolder(prompt, targetFolder);
-				}
-				return;
-			}
-
-			// Dropped onto another card → reorder (manual layouts only).
-			if (!isManualOrder || activeId === overId) return;
-			const oldIndex = visibleIds.indexOf(activeId);
-			const newIndex = visibleIds.indexOf(overId);
-			if (oldIndex < 0 || newIndex < 0) return;
-			const nextOrder = arrayMove(visibleIds, oldIndex, newIndex);
-			setOrderOverride(nextOrder);
-			void reorder(nextOrder);
-		},
-		[entries, isManualOrder, visibleIds, reorder, handleMoveToFolder],
-	);
-
-	// ── Cmd/Ctrl+K quick-picker + ⌘F search focus ────────────────────────────
-	useEffect(() => {
-		const onKeyDown = (event: KeyboardEvent) => {
-			const meta = event.metaKey || event.ctrlKey;
-			if (meta && event.key.toLowerCase() === "k") {
-				event.preventDefault();
-				setPickerOpen((open) => !open);
-			} else if (meta && event.key.toLowerCase() === "f") {
-				event.preventDefault();
-				searchRef.current?.focus();
-			}
-		};
-		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, []);
-
-	const hasPrompts = entries.length > 0;
-	const noResults = hasPrompts && visiblePrompts.length === 0 && !isLoading;
-
-	const clearFilters = useCallback(() => {
-		setQuery("");
-		setSelectedTags([]);
-		setRailFilter(RAIL_ALL);
-	}, []);
-
-	const toggleTag = useCallback((tag: string) => {
-		setSelectedTags((prev) =>
-			prev.includes(tag)
-				? prev.filter((existing) => existing !== tag)
-				: [...prev, tag],
-		);
-	}, []);
+	const isSaving = createMutation.isPending || updateMutation.isPending;
 
 	return (
-		<DashboardSurface bare>
-			<DndContext
-				sensors={sensors}
-				collisionDetection={closestCenter}
-				onDragEnd={handleDragEnd}
-			>
-				<div className="flex h-full w-full min-h-0 flex-col overflow-hidden">
-					{/* Header */}
-					<header className="flex flex-col gap-3 border-b border-border px-6 py-4">
-						<div className="flex items-start justify-between gap-3">
-							<div className="min-w-0">
-								<h1 className="text-lg font-semibold text-foreground">
-									Сохранённые промпты
-								</h1>
+		<div className="flex h-full w-full flex-1 flex-col overflow-hidden">
+			<header className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
+				<div className="min-w-0">
+					<h1 className="text-lg font-semibold text-foreground">
+						Сохранённые промпты
+					</h1>
+					<p className="text-sm text-muted-foreground">
+						Библиотека готовых промптов — переиспользуйте их в чате.
+					</p>
+				</div>
+				<Button onClick={openCreate} className="shrink-0">
+					<LuPlus className="size-4" />
+					Новый промпт
+				</Button>
+			</header>
+
+			<div className="flex-1 overflow-y-auto px-6 py-4">
+				{prompts.length === 0 ? (
+					isLoading ? null : (
+						<div className="flex w-full flex-col gap-3">
+							<div className="flex flex-col gap-1 pt-2">
+								<h2 className="text-sm font-medium text-foreground">
+									Примеры — сохраните себе
+								</h2>
 								<p className="text-sm text-muted-foreground">
-									Библиотека готовых промптов — переиспользуйте их в любом чате.
+									Готовые промпты для старта. Сохраните понравившиеся или
+									создайте свой.
 								</p>
 							</div>
-							<div className="flex shrink-0 items-center gap-2">
-								<Tooltip>
-									<TooltipTrigger asChild>
-										<Button
-											variant="outline"
-											onClick={() => setPickerOpen(true)}
-											className="gap-2"
-										>
-											<LuSearch className="size-4" />
-											<Kbd>⌘K</Kbd>
-										</Button>
-									</TooltipTrigger>
-									<TooltipContent>Быстрый выбор промпта</TooltipContent>
-								</Tooltip>
-								<Button onClick={() => setEditor({ mode: "create" })}>
-									<LuPlus className="size-4" />
-									Новый промпт
-								</Button>
-							</div>
-						</div>
-
-						<div className="flex items-center gap-2">
-							<div className="relative flex-1">
-								<LuSearch className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-								<Input
-									ref={searchRef}
-									placeholder="Поиск по названию, тексту и тегам…"
-									value={query}
-									onChange={(event) => setQuery(event.target.value)}
-									onKeyDown={(event) => {
-										if (event.key === "Escape") setQuery("");
-									}}
-									className="pl-8"
-								/>
-							</div>
-							<DensityToggle density={density} onChange={setDensity} />
-						</div>
-					</header>
-
-					{/* Two-pane body */}
-					<div className="flex min-h-0 flex-1 overflow-hidden">
-						{hasPrompts && (
-							<LeftRail
-								filter={railFilter}
-								onFilterChange={setRailFilter}
-								totalCount={entries.length}
-								favoriteCount={favoriteCount}
-								recentCount={recentCount}
-								frequentCount={frequentCount}
-								unfiledCount={unfiledCount}
-								tags={tagCounts}
-								folders={folderCounts}
-								onCreateFolder={handleCreateFolder}
-							/>
-						)}
-
-						<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-							{hasPrompts && allTags.length > 0 && (
-								<div className="border-b border-border">
-									<TagFilterRow
-										tags={allTags}
-										selected={selectedTags}
-										onToggle={toggleTag}
-										onClear={() => setSelectedTags([])}
-									/>
-								</div>
-							)}
-
-							<div
-								ref={scrollRef}
-								className="min-h-0 flex-1 overflow-y-auto px-6 py-4"
-							>
-								{isError ? (
-									<ErrorBanner onRetry={() => void refetch()} />
-								) : isLoading ? (
-									<SkeletonCards />
-								) : !hasPrompts ? (
-									<EmptySeedGallery
-										saving={isCreating}
-										onSave={handleSeedSave}
-										onInsert={(example) => {
-											const outcome = insert(example.body);
-											if (outcome.mode === "in-place") {
-												toast.success("Промпт вставлен");
-											} else {
-												void copyToClipboard(example.body);
-												toast.success(
-													"Промпт скопирован — откройте чат, чтобы вставить",
-												);
-											}
-										}}
-										onCopy={(example) => {
-											void copyToClipboard(example.body);
-											toast.success("Скопировано в буфер обмена");
-										}}
-									/>
-								) : noResults ? (
-									<NoResults onClear={clearFilters} />
-								) : (
-									<SortableContext
-										items={visibleIds}
-										strategy={verticalListSortingStrategy}
+							<ul className="grid gap-3 xl:grid-cols-2">
+								{DEFAULT_SAVED_PROMPTS.map((example) => (
+									<li
+										key={example.id}
+										className={cn(
+											"group flex flex-col gap-2 rounded-lg border border-dashed border-border bg-card/50 p-4",
+											"transition-colors hover:border-border/80",
+										)}
 									>
-										<div
-											style={{
-												height: virtualizer.getTotalSize(),
-												position: "relative",
-												width: "100%",
+										<div className="flex items-start justify-between gap-3">
+											<h3 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+												{example.title}
+											</h3>
+											<div className="flex shrink-0 items-center gap-1">
+												<Button
+													size="sm"
+													variant="outline"
+													onClick={() =>
+														createMutation.mutate({
+															title: example.title,
+															body: example.body,
+														})
+													}
+													disabled={createMutation.isPending}
+												>
+													<LuBookmarkPlus className="size-4" />
+													Сохранить
+												</Button>
+												<Button
+													size="icon"
+													variant="ghost"
+													aria-label="Вставить в чат"
+													onClick={() => {
+														stagePrompt(example.body);
+														navigate({ to: "/quick-chat" });
+													}}
+												>
+													<LuMessageSquarePlus className="size-4" />
+												</Button>
+												<Button
+													size="icon"
+													variant="ghost"
+													aria-label="Скопировать"
+													onClick={() => {
+														void copyToClipboard(example.body);
+														toast.success("Скопировано в буфер обмена");
+													}}
+												>
+													<LuCopy className="size-4" />
+												</Button>
+											</div>
+										</div>
+										<p className="line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground select-text">
+											{example.body}
+										</p>
+									</li>
+								))}
+							</ul>
+						</div>
+					)
+				) : (
+					<ul className="grid gap-3 xl:grid-cols-2">
+						{prompts.map((prompt) => (
+							<li
+								key={prompt.id}
+								className={cn(
+									"group flex flex-col gap-2 rounded-lg border border-border bg-card p-4",
+									"transition-colors hover:border-border/80",
+								)}
+							>
+								<div className="flex items-start justify-between gap-3">
+									<h2 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+										{prompt.title}
+									</h2>
+									<div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+										<Button
+											size="icon"
+											variant="ghost"
+											aria-label="Вставить в чат"
+											onClick={() => handleUseInChat(prompt)}
+										>
+											<LuMessageSquarePlus className="size-4" />
+										</Button>
+										<Button
+											size="icon"
+											variant="ghost"
+											aria-label="Скопировать"
+											onClick={() => {
+												void copyToClipboard(prompt.body);
+												toast.success("Скопировано в буфер обмена");
 											}}
 										>
-											{/*
-											 * Virtualized rows own their vertical placement via an
-											 * inline `translateY`. Each row fades in via an
-											 * opacity-only entrance that leaves the transform
-											 * untouched; the sortable wrapper layers its own drag
-											 * transform on top only while dragging.
-											 */}
-											{virtualizer.getVirtualItems().map((virtualRow) => {
-												const prompt = visiblePrompts[virtualRow.index];
-												return (
-													<motion.div
-														key={prompt.id}
-														data-index={virtualRow.index}
-														ref={virtualizer.measureElement}
-														initial={listFade.initial}
-														animate={listFade.animate}
-														transition={listFade.transition}
-														style={{
-															position: "absolute",
-															top: 0,
-															left: 0,
-															width: "100%",
-															transform: `translateY(${virtualRow.start}px)`,
-														}}
-														className="pb-2"
-													>
-														<SortablePromptRow
-															prompt={prompt}
-															sortable={isManualOrder}
-															availableFolders={allFolders}
-															onInsert={handleInsert}
-															onCopy={handleCopy}
-															onEdit={(target) =>
-																setEditor({ mode: "edit", prompt: target })
-															}
-															onDelete={(target) => deletePrompt(target.id)}
-															onDuplicate={handleDuplicate}
-															onToggleFavorite={(target) =>
-																void toggleFavorite(target)
-															}
-															onMoveToFolder={handleMoveToFolder}
-														/>
-													</motion.div>
-												);
-											})}
-										</div>
-									</SortableContext>
-								)}
-							</div>
-						</div>
+											<LuCopy className="size-4" />
+										</Button>
+										<Button
+											size="icon"
+											variant="ghost"
+											aria-label="Редактировать"
+											onClick={() => openEdit(prompt)}
+										>
+											<LuPencil className="size-4" />
+										</Button>
+										<Button
+											size="icon"
+											variant="ghost"
+											aria-label="Удалить"
+											onClick={() => deleteMutation.mutate({ id: prompt.id })}
+										>
+											<LuTrash2 className="size-4" />
+										</Button>
+									</div>
+								</div>
+								<p className="line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground select-text">
+									{prompt.body}
+								</p>
+							</li>
+						))}
+					</ul>
+				)}
+			</div>
+
+			<Dialog
+				open={dialog.mode !== "closed"}
+				onOpenChange={(open) => {
+					if (!open) setDialog({ mode: "closed" });
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>
+							{dialog.mode === "edit" ? "Редактировать промпт" : "Новый промпт"}
+						</DialogTitle>
+						<DialogDescription>
+							Название поможет быстро найти промпт, текст вставится в чат.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="flex flex-col gap-3">
+						<Input
+							placeholder="Название"
+							value={title}
+							onChange={(event) => setTitle(event.target.value)}
+							maxLength={200}
+							autoFocus
+						/>
+						<Textarea
+							placeholder="Текст промпта"
+							value={body}
+							onChange={(event) => setBody(event.target.value)}
+							className="min-h-40 resize-y"
+						/>
 					</div>
-				</div>
-			</DndContext>
-
-			<PromptEditorDialog
-				state={editor}
-				saving={isCreating || isUpdating}
-				availableFolders={allFolders}
-				onClose={() => setEditor({ mode: "closed" })}
-				onSubmit={handleEditorSubmit}
-			/>
-
-			<VariableFillDrawer
-				target={fillTarget}
-				cachedValues={
-					fillTarget ? variableCache.read(fillTarget.prompt.id) : undefined
-				}
-				onOpenChange={(open) => !open && setFillTarget(null)}
-				onCommit={handleFillCommit}
-			/>
-
-			<QuickPicker
-				open={pickerOpen}
-				onOpenChange={setPickerOpen}
-				prompts={entries}
-				onPick={handleInsert}
-			/>
-		</DashboardSurface>
-	);
-}
-
-function DensityToggle({
-	density,
-	onChange,
-}: {
-	density: Density;
-	onChange: (density: Density) => void;
-}) {
-	const next = density === "comfortable" ? "compact" : "comfortable";
-	const Icon = density === "comfortable" ? LuRows3 : LuLayoutList;
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button
-					size="icon"
-					variant="outline"
-					aria-label="Плотность списка"
-					onClick={() => onChange(next)}
-				>
-					<Icon className="size-4" />
-				</Button>
-			</TooltipTrigger>
-			<TooltipContent>
-				{density === "comfortable" ? "Компактный вид" : "Просторный вид"}
-			</TooltipContent>
-		</Tooltip>
-	);
-}
-
-function ErrorBanner({ onRetry }: { onRetry: () => void }) {
-	return (
-		<div
-			role="alert"
-			className={cn(
-				"flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3",
-			)}
-		>
-			<span className="text-sm text-foreground">
-				Не удалось загрузить промпты.
-			</span>
-			<Button size="sm" variant="outline" onClick={onRetry}>
-				Повторить
-			</Button>
-		</div>
-	);
-}
-
-function NoResults({ onClear }: { onClear: () => void }) {
-	return (
-		<div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-			<p className="text-sm text-muted-foreground">Ничего не найдено</p>
-			<Button size="sm" variant="outline" onClick={onClear}>
-				Очистить фильтры
-			</Button>
+					<DialogFooter>
+						<Button
+							variant="ghost"
+							onClick={() => setDialog({ mode: "closed" })}
+						>
+							Отмена
+						</Button>
+						<Button onClick={handleSubmit} disabled={isSaving}>
+							{dialog.mode === "edit" ? "Сохранить" : "Создать"}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

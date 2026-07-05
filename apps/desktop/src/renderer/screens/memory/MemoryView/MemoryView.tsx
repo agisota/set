@@ -47,8 +47,8 @@ export function MemoryView() {
 	);
 
 	return (
-		<div className="h-full overflow-y-auto">
-			<div className="mx-auto max-w-3xl px-6 py-8">
+		<div className="h-full min-w-0 overflow-y-auto bg-background/85">
+			<div className="w-full px-6 py-8">
 				<header className="mb-8">
 					<h1 className="font-semibold text-2xl text-foreground">Память</h1>
 					<p className="mt-1 text-muted-foreground text-sm">
@@ -61,7 +61,7 @@ export function MemoryView() {
 
 				<MemorySuggestions items={suggested} />
 
-				<div className="space-y-5">
+				<div className="grid gap-5 xl:grid-cols-2">
 					{MEMORY_GROUPS.map((group) => (
 						<MemoryGroup
 							key={group.category}

@@ -10,19 +10,14 @@ import { useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { electronTrpc } from "renderer/lib/electron-trpc";
 import {
+	type SettingsSection,
 	useSetSettingsSearchQuery,
 	useSettingsOriginRoute,
 	useSettingsSearchQuery,
 } from "renderer/stores/settings-state";
 import { NavigationControls } from "../_dashboard/components/NavigationControls";
 import { SearchResultsBanner } from "./components/SearchResultsBanner";
-import { SettingsDeepLinkFlash } from "./components/SettingsDeepLinkFlash";
 import { SettingsSidebar } from "./components/SettingsSidebar";
-import {
-	getPathFromSection,
-	getSectionFromPath,
-	SECTION_ORDER,
-} from "./components/SettingsSidebar/settings-manifest";
 import {
 	getMatchCountBySection,
 	searchSettings,
@@ -31,6 +26,90 @@ import {
 export const Route = createFileRoute("/_authenticated/settings")({
 	component: SettingsLayout,
 });
+
+const SECTION_ORDER: SettingsSection[] = [
+	"account",
+	"appearance",
+	"ringtones",
+	"keyboard",
+	"voice",
+	"behavior",
+	"git",
+	"terminal",
+	"links",
+	"shares",
+	"models",
+	"organization",
+	"teams",
+	"integrations",
+	"apikeys",
+	"permissions",
+	"hosts",
+	"experimental",
+];
+
+function getSectionFromPath(pathname: string): SettingsSection | null {
+	if (pathname.includes("/settings/account")) return "account";
+	if (pathname.includes("/settings/organization")) return "organization";
+	if (pathname.includes("/settings/teams")) return "teams";
+	if (pathname.includes("/settings/appearance")) return "appearance";
+	if (pathname.includes("/settings/ringtones")) return "ringtones";
+	if (pathname.includes("/settings/keyboard")) return "keyboard";
+	if (pathname.includes("/settings/voice")) return "voice";
+	if (pathname.includes("/settings/behavior")) return "behavior";
+	if (pathname.includes("/settings/git")) return "git";
+	if (pathname.includes("/settings/terminal")) return "terminal";
+	if (pathname.includes("/settings/links")) return "links";
+	if (pathname.includes("/settings/shares")) return "shares";
+	if (pathname.includes("/settings/models")) return "models";
+	if (pathname.includes("/settings/experimental")) return "experimental";
+	if (pathname.includes("/settings/integrations")) return "integrations";
+	if (pathname.includes("/settings/permissions")) return "permissions";
+	if (pathname.includes("/settings/hosts")) return "hosts";
+	if (pathname.includes("/settings/project")) return "project";
+	return null;
+}
+
+function getPathFromSection(section: SettingsSection): string {
+	switch (section) {
+		case "account":
+			return "/settings/account";
+		case "organization":
+			return "/settings/organization";
+		case "teams":
+			return "/settings/teams";
+		case "appearance":
+			return "/settings/appearance";
+		case "ringtones":
+			return "/settings/ringtones";
+		case "keyboard":
+			return "/settings/keyboard";
+		case "voice":
+			return "/settings/voice";
+		case "behavior":
+			return "/settings/behavior";
+		case "git":
+			return "/settings/git";
+		case "terminal":
+			return "/settings/terminal";
+		case "links":
+			return "/settings/links";
+		case "shares":
+			return "/settings/shares";
+		case "models":
+			return "/settings/models";
+		case "experimental":
+			return "/settings/experimental";
+		case "integrations":
+			return "/settings/integrations";
+		case "permissions":
+			return "/settings/permissions";
+		case "hosts":
+			return "/settings/hosts";
+		default:
+			return "/settings/account";
+	}
+}
 
 function SettingsLayout() {
 	const { data: platform } = electronTrpc.window.getPlatform.useQuery();
@@ -97,7 +176,6 @@ function SettingsLayout() {
 
 	return (
 		<div className="flex flex-col h-screen w-screen bg-tertiary">
-			<SettingsDeepLinkFlash />
 			<div
 				className="drag flex h-12 w-full items-center gap-1.5 bg-tertiary"
 				style={{

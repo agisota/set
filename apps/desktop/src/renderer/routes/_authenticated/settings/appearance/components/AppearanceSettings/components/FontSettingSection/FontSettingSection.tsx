@@ -1,3 +1,7 @@
+import {
+	DEFAULT_SETTINGS_UI_FONT_FAMILY,
+	DEFAULT_SETTINGS_UI_FONT_SIZE,
+} from "@rox/local-db/schema";
 import { Button } from "@rox/ui/button";
 import { Input } from "@rox/ui/input";
 import { useCallback, useEffect, useState } from "react";
@@ -15,6 +19,15 @@ import { FontPreview } from "./components/FontPreview";
 import { useSystemFonts } from "./hooks/useSystemFonts";
 
 const VARIANT_CONFIG = {
+	ui: {
+		title: "Шрифт интерфейса",
+		description:
+			"Шрифт, который используется в навигации, настройках и app chrome. Не влияет на терминал и редактор.",
+		defaultFamily: DEFAULT_SETTINGS_UI_FONT_FAMILY,
+		defaultSize: DEFAULT_SETTINGS_UI_FONT_SIZE,
+		familyKey: "uiFontFamily",
+		sizeKey: "uiFontSize",
+	},
 	editor: {
 		title: "Шрифт редактора",
 		description:
@@ -35,7 +48,7 @@ const VARIANT_CONFIG = {
 } as const;
 
 interface FontSettingSectionProps {
-	variant: "editor" | "terminal";
+	variant: "ui" | "editor" | "terminal";
 }
 
 export function FontSettingSection({ variant }: FontSettingSectionProps) {
@@ -51,6 +64,8 @@ export function FontSettingSection({ variant }: FontSettingSectionProps) {
 			await utils.settings.getFontSettings.cancel();
 			const previous = utils.settings.getFontSettings.getData();
 			utils.settings.getFontSettings.setData(undefined, (old) => ({
+				uiFontFamily: old?.uiFontFamily ?? null,
+				uiFontSize: old?.uiFontSize ?? null,
 				terminalFontFamily: old?.terminalFontFamily ?? null,
 				terminalFontSize: old?.terminalFontSize ?? null,
 				editorFontFamily: old?.editorFontFamily ?? null,

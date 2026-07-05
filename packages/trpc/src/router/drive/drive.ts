@@ -28,7 +28,7 @@ import {
 } from "@rox/db/schema";
 import { computeUploadDecision } from "@rox/shared/drive-quota";
 import { TRPCError, type TRPCRouterRecord } from "@trpc/server";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { protectedProcedure, publicProcedure } from "../../trpc";
 import { hashSharePassword, verifySharePassword } from "./password";
 import {
@@ -49,6 +49,7 @@ import {
 	listFolderSchema,
 	moveFileSchema,
 	moveFolderSchema,
+	organizeFolderSchema,
 	renameFileSchema,
 	renameFolderSchema,
 	requestDownloadSchema,
@@ -65,6 +66,94 @@ import { generateShareToken } from "./token";
 const UPLOAD_TTL = 600;
 const DOWNLOAD_TTL = 300;
 const SHARE_TTL = 60;
+
+const DRIVE_ORGANIZE_CATEGORIES = [
+	{
+		key: "documents",
+		folderName: "Документы",
+		matches: (file: { name: string; mediaType: string }) => {
+			const ext = getExtension(file.name);
+			return (
+				file.mediaType.startsWith("text/") ||
+				file.mediaType.includes("pdf") ||
+				[
+					"csv",
+					"doc",
+					"docx",
+					"md",
+					"pages",
+					"pdf",
+					"rtf",
+					"txt",
+					"xls",
+					"xlsx",
+				].includes(ext)
+			);
+		},
+	},
+	{
+		key: "images",
+		folderName: "Изображения",
+		matches: (file: { mediaType: string }) =>
+			file.mediaType.startsWith("image/"),
+	},
+	{
+		key: "media",
+		folderName: "Медиа",
+		matches: (file: { mediaType: string }) =>
+			file.mediaType.startsWith("audio/") ||
+			file.mediaType.startsWith("video/"),
+	},
+	{
+		key: "archives",
+		folderName: "Архивы",
+		matches: (file: { name: string; mediaType: string }) => {
+			const ext = getExtension(file.name);
+			return (
+				file.mediaType.includes("zip") ||
+				file.mediaType.includes("gzip") ||
+				file.mediaType.includes("tar") ||
+				["7z", "gz", "rar", "tar", "tgz", "zip"].includes(ext)
+			);
+		},
+	},
+	{
+		key: "code",
+		folderName: "Код",
+		matches: (file: { name: string }) =>
+			[
+				"css",
+				"go",
+				"html",
+				"java",
+				"js",
+				"json",
+				"jsx",
+				"py",
+				"rs",
+				"sh",
+				"sql",
+				"ts",
+				"tsx",
+				"yaml",
+				"yml",
+			].includes(getExtension(file.name)),
+	},
+] as const;
+
+function getExtension(name: string) {
+	const match = /\.([^.]+)$/.exec(name.trim().toLowerCase());
+	return match?.[1] ?? "";
+}
+
+function getOrganizeCategory(file: { name: string; mediaType: string }) {
+	return (
+		DRIVE_ORGANIZE_CATEGORIES.find((category) => category.matches(file)) ?? {
+			key: "other" as const,
+			folderName: "Прочее",
+		}
+	);
+}
 
 /** Resolve the storage provider or throw a clean error when R2 is unconfigured. */
 function requireStorage() {
@@ -170,6 +259,156 @@ export const driveRouter = {
 				})
 				.returning();
 			return row;
+		}),
+
+	organizeFolder: protectedProcedure
+		.input(organizeFolderSchema)
+		.mutation(async ({ ctx, input }) => {
+			const userId = ctx.session.user.id;
+			const folderId = input?.folderId ?? null;
+
+			if (folderId) {
+				await getOwnedFolder(userId, folderId);
+			}
+
+			const files = await db
+				.select()
+				.from(driveFiles)
+				.where(
+					and(
+						eq(driveFiles.userId, userId),
+						folderId === null
+							? isNull(driveFiles.folderId)
+							: eq(driveFiles.folderId, folderId),
+						isNull(driveFiles.trashedAt),
+					),
+				);
+
+			if (files.length === 0) {
+				return {
+					ok: true as const,
+					movedCount: 0,
+					createdFolderCount: 0,
+					targets: [] as {
+						key: string;
+						folderId: string;
+						folderName: string;
+					}[],
+				};
+			}
+
+			const filesByTarget = new Map<
+				string,
+				{ folderName: string; fileIds: string[] }
+			>();
+
+			for (const file of files) {
+				const category = getOrganizeCategory({
+					name: file.name,
+					mediaType: file.mediaType,
+				});
+				const bucket = filesByTarget.get(category.key) ?? {
+					folderName: category.folderName,
+					fileIds: [],
+				};
+				bucket.fileIds.push(file.id);
+				filesByTarget.set(category.key, bucket);
+			}
+
+			const targetNames = [...filesByTarget.values()].map(
+				(target) => target.folderName,
+			);
+			const existingFolders = await db
+				.select()
+				.from(driveFolders)
+				.where(
+					and(
+						eq(driveFolders.userId, userId),
+						folderId === null
+							? isNull(driveFolders.parentId)
+							: eq(driveFolders.parentId, folderId),
+						inArray(driveFolders.name, targetNames),
+					),
+				);
+
+			const folderIdsByName = new Map(
+				existingFolders.map((folder) => [folder.name, folder.id]),
+			);
+			let createdFolderCount = 0;
+
+			for (const folderName of targetNames) {
+				if (folderIdsByName.has(folderName)) continue;
+
+				const [created] = await db
+					.insert(driveFolders)
+					.values({
+						userId,
+						parentId: folderId,
+						name: folderName,
+					})
+					.onConflictDoNothing({
+						target: [
+							driveFolders.userId,
+							driveFolders.parentId,
+							driveFolders.name,
+						],
+					})
+					.returning();
+
+				if (created) {
+					folderIdsByName.set(folderName, created.id);
+					createdFolderCount += 1;
+				} else {
+					const [existing] = await db
+						.select()
+						.from(driveFolders)
+						.where(
+							and(
+								eq(driveFolders.userId, userId),
+								folderId === null
+									? isNull(driveFolders.parentId)
+									: eq(driveFolders.parentId, folderId),
+								eq(driveFolders.name, folderName),
+							),
+						)
+						.limit(1);
+					if (existing) {
+						folderIdsByName.set(folderName, existing.id);
+					}
+				}
+			}
+
+			const targets: { key: string; folderId: string; folderName: string }[] =
+				[];
+			let movedCount = 0;
+
+			for (const [key, target] of filesByTarget) {
+				const targetFolderId = folderIdsByName.get(target.folderName);
+				if (!targetFolderId) continue;
+
+				targets.push({
+					key,
+					folderId: targetFolderId,
+					folderName: target.folderName,
+				});
+
+				for (const fileId of target.fileIds) {
+					await db
+						.update(driveFiles)
+						.set({ folderId: targetFolderId })
+						.where(
+							and(eq(driveFiles.id, fileId), eq(driveFiles.userId, userId)),
+						);
+					movedCount += 1;
+				}
+			}
+
+			return {
+				ok: true as const,
+				movedCount,
+				createdFolderCount,
+				targets,
+			};
 		}),
 
 	renameFolder: protectedProcedure
@@ -614,7 +853,21 @@ export const driveRouter = {
 		.mutation(async ({ ctx, input }) => {
 			const userId = ctx.session.user.id;
 			if (input.fileId) {
-				await getOwnedFile(userId, input.fileId);
+				const file = await getOwnedFile(userId, input.fileId);
+				if (file.status === "quarantined") {
+					throw new TRPCError({
+						code: "FORBIDDEN",
+						message: "This file failed a safety scan and cannot be shared.",
+					});
+				}
+				if (file.status !== "clean") {
+					throw new TRPCError({
+						code: "PRECONDITION_FAILED",
+						message:
+							"This file is still being processed and cannot be shared yet.",
+					});
+				}
+				requireStorage();
 			} else if (input.folderId) {
 				await getOwnedFolder(userId, input.folderId);
 			}

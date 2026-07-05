@@ -312,6 +312,10 @@
 			"types": "./src/knowledge/notes-search.ts",
 			"default": "./src/knowledge/notes-search.ts"
 		},
+		"./knowledge/wikilinks": {
+			"types": "./src/knowledge/wikilinks.ts",
+			"default": "./src/knowledge/wikilinks.ts"
+		},
 		"./integrations": {
 			"types": "./src/integrations/index.ts",
 			"default": "./src/integrations/index.ts"

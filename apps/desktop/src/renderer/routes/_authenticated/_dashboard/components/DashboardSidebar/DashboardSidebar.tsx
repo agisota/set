@@ -130,8 +130,6 @@ export function DashboardSidebar({
 	const v2RouteMatch = matchRoute({ to: "/v2-workspace/$workspaceId" });
 	const activeV2WorkspaceId = v2RouteMatch ? v2RouteMatch.workspaceId : null;
 
-	// Per-surface visibility (Settings → Поверхности). Hidden by default; each
-	// surface only renders in the rail once the user opts it back in.
 	const surfaceVisibility = useSurfaceVisibilityStore(
 		(state) => state.visibility,
 	);
@@ -312,7 +310,7 @@ export function DashboardSidebar({
 							>
 								{surfaceVisibility.canvas && (
 									<DashboardSidebarNavButton
-										label="Canvas"
+										label="Канвас"
 										icon={HiOutlineRectangleGroup}
 										isActive={isCanvasOpen}
 										isCollapsed={isCollapsed}
@@ -350,7 +348,7 @@ export function DashboardSidebar({
 								)}
 								{surfaceVisibility.drive && (
 									<DashboardSidebarNavButton
-										label="Drive"
+										label="Диск"
 										icon={HiOutlineFolder}
 										isActive={isDriveOpen}
 										isCollapsed={isCollapsed}

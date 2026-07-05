@@ -1,15 +1,9 @@
+import { Badge } from "@rox/ui/badge";
+import { Button } from "@rox/ui/button";
 import { Label } from "@rox/ui/label";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@rox/ui/select";
 import { toast } from "@rox/ui/sonner";
 import { Switch } from "@rox/ui/switch";
 import { Textarea } from "@rox/ui/textarea";
-import { ListenButton } from "@rox/ui/voice";
 import { ShieldCheckIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { electronTrpc } from "renderer/lib/electron-trpc";
@@ -24,8 +18,8 @@ import {
 /**
  * Settings → Voice: opt-out + customization + consent (Phase 4a/4b).
  *
- * - "Голосовой ввод" (dictation) — on by default; off hides the mic button and
- *   disables the dictate hotkey.
+ * - "Голосовой ввод" (dictation) — on by default; off keeps the mic visible but
+ *   disabled, and disables the dictate hotkey.
  * - "Фоновый агент (always-on)" — opt-in (off by default) per the locked privacy
  *   decision; shows a recording indicator when it eventually runs.
  * - "Контекст для агента" — free-text the user supplies in advance, threaded into
@@ -42,8 +36,89 @@ import {
  *     it for the UI). A cloud-write failure surfaces a toast but never breaks
  *     the local toggle. Org/user scoping is server-derived in the router.
  */
+
+type DictationStateTone = "default" | "secondary" | "destructive" | "outline";
+
+export type VoiceDictationState = {
+	label: string;
+	tone: DictationStateTone;
+	description: string;
+};
+
+export function resolveVoiceDictationState({
+	dictationEnabled,
+	microphoneGranted,
+	voiceConfigured,
+}: {
+	dictationEnabled?: boolean;
+	microphoneGranted?: boolean;
+	voiceConfigured: boolean | null;
+}): VoiceDictationState {
+	if (dictationEnabled === false) {
+		return {
+			label: "Выключено",
+			tone: "secondary",
+			description:
+				"Кнопка микрофона в prompt input остаётся видимой, но неактивной.",
+		};
+	}
+	if (microphoneGranted === false) {
+		return {
+			label: "Нет доступа к микрофону",
+			tone: "destructive",
+			description:
+				"macOS не выдала Rox доступ к микрофону. Диктовка не начнётся, пока доступ не разрешён.",
+		};
+	}
+	if (voiceConfigured === false) {
+		return {
+			label: "Требуется настройка распознавания",
+			tone: "outline",
+			description:
+				"Backend распознавания речи сейчас не сконфигурирован. Кнопка микрофона будет disabled и покажет эту причину.",
+		};
+	}
+	if (voiceConfigured === null) {
+		return {
+			label: "Проверяем настройку",
+			tone: "outline",
+			description:
+				"Rox проверяет runtime распознавания речи. Кнопка микрофона останется disabled, пока проверка не завершится.",
+		};
+	}
+	return {
+		label: "Готово",
+		tone: "default",
+		description:
+			"Голосовой ввод включён; кнопка микрофона доступна в prompt input и горячей клавише.",
+	};
+}
+
 export function VoiceSettings() {
 	const utils = electronTrpc.useUtils();
+	const { data: permissionStatus } =
+		electronTrpc.permissions.getStatus.useQuery();
+	const requestMicrophone =
+		electronTrpc.permissions.requestMicrophone.useMutation({
+			onSuccess: () => {
+				void utils.permissions.getStatus.invalidate();
+			},
+		});
+	const [voiceConfigured, setVoiceConfigured] = useState<boolean | null>(null);
+	useEffect(() => {
+		let active = true;
+		apiClient.voice.isConfigured
+			.query()
+			.then((result) => {
+				if (active) setVoiceConfigured(result.configured);
+			})
+			.catch(() => {
+				if (active) setVoiceConfigured(false);
+			});
+		return () => {
+			active = false;
+		};
+	}, []);
 
 	// --- Dictation toggle ---------------------------------------------------
 	const { data: dictationEnabled, isLoading: isDictationLoading } =
@@ -68,30 +143,6 @@ export function VoiceSettings() {
 				utils.settings.getDictationEnabled.invalidate();
 			},
 		});
-
-	// --- TTS voice (FN-043 / #486) ------------------------------------------
-	// Voice used by the "Прослушать" button on agent replies. Persisted locally;
-	// the test button below reads a sample line aloud through the same edge-TTS
-	// path the chat button uses.
-	const { data: ttsVoices } = electronTrpc.tts.listVoices.useQuery();
-	const { data: ttsVoice } = electronTrpc.tts.getVoice.useQuery();
-	const setTtsVoice = electronTrpc.tts.setVoice.useMutation({
-		onMutate: async ({ voice }) => {
-			await utils.tts.getVoice.cancel();
-			const previous = utils.tts.getVoice.getData();
-			utils.tts.getVoice.setData(undefined, voice);
-			return { previous };
-		},
-		onError: (_err, _vars, context) => {
-			if (context?.previous !== undefined) {
-				utils.tts.getVoice.setData(undefined, context.previous);
-			}
-			toast.error("Не удалось сохранить голос озвучивания");
-		},
-		onSettled: () => {
-			utils.tts.getVoice.invalidate();
-		},
-	});
 
 	// --- Cloud ambient settings (source of truth for the server nudge job) ---
 	// Seeded once from `apiClient.ambient.get`; a failed read leaves it
@@ -199,6 +250,12 @@ export function VoiceSettings() {
 		});
 	};
 
+	const dictationState = resolveVoiceDictationState({
+		dictationEnabled,
+		microphoneGranted: permissionStatus?.microphone,
+		voiceConfigured,
+	});
+
 	return (
 		<div className="space-y-6">
 			<div className="flex items-center justify-between">
@@ -208,7 +265,7 @@ export function VoiceSettings() {
 					</Label>
 					<p className="text-muted-foreground text-xs">
 						Кнопка микрофона в поле ввода и горячая клавиша для диктовки
-						промптов. Когда выключено — микрофон скрыт, диктовка недоступна.
+						промптов. Когда выключено — микрофон виден, но неактивен.
 					</p>
 				</div>
 				<Switch
@@ -219,45 +276,27 @@ export function VoiceSettings() {
 				/>
 			</div>
 
-			{/* FN-043 (#486): TTS voice for the "Прослушать" button on agent replies. */}
-			<div className="space-y-2">
-				<div className="flex items-center justify-between gap-4">
-					<div className="space-y-0.5 pr-6">
-						<Label htmlFor="tts-voice" className="font-medium text-sm">
-							Голос озвучивания
-						</Label>
-						<p className="text-muted-foreground text-xs">
-							Голос для кнопки «Прослушать» под ответами агента. Работает
-							бесплатно (edge-TTS), ключи не нужны.
-						</p>
-					</div>
+			<div className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/35 p-3">
+				<div className="space-y-1">
 					<div className="flex items-center gap-2">
-						<Select
-							value={ttsVoice ?? undefined}
-							onValueChange={(voice) => setTtsVoice.mutate({ voice })}
-						>
-							<SelectTrigger id="tts-voice" className="w-[200px]">
-								<SelectValue placeholder="Выберите голос" />
-							</SelectTrigger>
-							<SelectContent>
-								{(ttsVoices ?? []).map((voice) => (
-									<SelectItem key={voice.id} value={voice.id}>
-										{voice.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<ListenButton
-							text="Привет! Так звучит выбранный голос Rox."
-							synthesize={(text) =>
-								utils.client.tts.synthesize.mutate({ text })
-							}
-							onError={() =>
-								toast.error("Не удалось воспроизвести образец голоса")
-							}
-						/>
+						<Label className="font-medium text-sm">Состояние диктовки</Label>
+						<Badge variant={dictationState.tone}>{dictationState.label}</Badge>
 					</div>
+					<p className="select-text cursor-text text-muted-foreground text-xs leading-snug">
+						{dictationState.description}
+					</p>
 				</div>
+				{permissionStatus?.microphone === false && (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						disabled={requestMicrophone.isPending}
+						onClick={() => requestMicrophone.mutate()}
+					>
+						Разрешить микрофон
+					</Button>
+				)}
 			</div>
 
 			<div className="flex items-center justify-between">

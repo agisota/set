@@ -51,7 +51,7 @@ export function NewWorkspaceButton({
 					</button>
 				</TooltipTrigger>
 				<TooltipContent side="right">
-					New Workspace ({shortcutText})
+					Новое рабочее пространство ({shortcutText})
 				</TooltipContent>
 			</Tooltip>
 		);

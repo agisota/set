@@ -1,1 +1,5 @@
-export { type ChatSendMessageInput, toSendFailureMessage } from "./sendMessage";
+export {
+	type ChatSendMessageInput,
+	toAgentStartupFailureMessage,
+	toSendFailureMessage,
+} from "./sendMessage";

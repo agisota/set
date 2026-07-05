@@ -34,11 +34,12 @@ export function WorkspaceHostIncompatibleState({
 
 				<div className="flex flex-col gap-1.5">
 					<h1 className="text-[15px] font-medium tracking-tight text-foreground">
-						Host needs an update
+						Host нужно обновить
 					</h1>
 					<p className="select-text cursor-text text-[13px] leading-relaxed text-muted-foreground">
-						This workspace's host is on an older version of Rox than this client
-						supports. Update the Rox app on that device to reconnect.
+						Host этого рабочего пространства работает на версии Rox старше, чем
+						поддерживает этот клиент. Обновите Rox на том устройстве, чтобы
+						подключиться снова.
 					</p>
 				</div>
 
@@ -58,7 +59,7 @@ export function WorkspaceHostIncompatibleState({
 					<div className="border-t border-border/60 px-3 py-2">
 						<div className="flex items-center justify-between gap-3">
 							<span className="text-[11px] uppercase tracking-wider text-muted-foreground/70">
-								Running
+								Запущено
 							</span>
 							<code className="select-text cursor-text font-mono text-[12px] tabular-nums text-foreground">
 								{hostVersion}
@@ -66,7 +67,7 @@ export function WorkspaceHostIncompatibleState({
 						</div>
 						<div className="mt-1 flex items-center justify-between gap-3">
 							<span className="text-[11px] uppercase tracking-wider text-muted-foreground/70">
-								Required
+								Требуется
 							</span>
 							<code className="select-text cursor-text font-mono text-[12px] tabular-nums text-muted-foreground">
 								≥ {minVersion}
@@ -82,7 +83,7 @@ export function WorkspaceHostIncompatibleState({
 					className="-ml-2 h-7 gap-1.5 px-2 text-[13px] font-medium text-foreground hover:bg-muted/60"
 				>
 					<Link to="/v2-workspaces">
-						Browse workspaces
+						Открыть рабочие пространства
 						<ArrowRight
 							className="size-3.5"
 							strokeWidth={2}

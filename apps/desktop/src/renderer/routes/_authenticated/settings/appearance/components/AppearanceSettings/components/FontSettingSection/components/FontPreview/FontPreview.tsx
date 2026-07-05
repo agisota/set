@@ -28,18 +28,22 @@ export const webSearchTool = createTool({
   },
 });`;
 
+const UI_PREVIEW = `Rox
+Настройки  Внешний вид  Аккаунт  Голос
+Рабочие области  Почта  Диск  Календарь
+
+Интерфейсный шрифт меняет навигацию, панели и app chrome.`;
+
 const TERMINAL_PREVIEW = `~/agent $ mastra dev
-\u2192 Loaded 3 tools \u00B7 1 agent \u00B7 0 workflows
-\u2192 Listening on http://localhost:4111
+\u2192 Загружено 3 tools \u00B7 1 agent \u00B7 0 workflows
+\u2192 Слушает локальный endpoint
 
 ~/agent $ mastra test
  \u2713 web-search.test.ts   (4)   47ms
  \u2713 fetch-url.test.ts    (7)   62ms
  \u2713 researcher.test.ts   (3)   91ms
 
- Files  3 passed \u00B7 Tests 14 passed \u00B7 0.24s
-
- Friends don't let friends compact.`;
+ Файлы 3 passed \u00B7 Тесты 14 passed \u00B7 0.24s`;
 
 export function FontPreview({
 	fontFamily,
@@ -49,12 +53,13 @@ export function FontPreview({
 }: {
 	fontFamily: string;
 	fontSize: number;
-	variant: "editor" | "terminal";
+	variant: "ui" | "editor" | "terminal";
 	isCustomFont: boolean;
 }) {
 	const theme = useTheme();
 	const isDark = theme?.type !== "light";
 	const isTerminal = variant === "terminal";
+	const isUi = variant === "ui";
 	const fontFamilyStyle = fontFamily || undefined;
 
 	return (
@@ -74,6 +79,25 @@ export function FontPreview({
 					}}
 				>
 					{TERMINAL_PREVIEW}
+				</div>
+			) : isUi ? (
+				<div
+					className="space-y-3 p-3"
+					style={{
+						fontFamily: fontFamilyStyle,
+						fontSize: `${fontSize}px`,
+						lineHeight: 1.45,
+					}}
+				>
+					<div className="rounded border bg-background/70 p-3">
+						{UI_PREVIEW}
+					</div>
+					<div className="flex gap-2">
+						<span className="rounded-md border px-2 py-1">Кнопка</span>
+						<span className="rounded-md border px-2 py-1 text-muted-foreground">
+							Вторичный текст
+						</span>
+					</div>
 				</div>
 			) : (
 				<SyntaxHighlighter

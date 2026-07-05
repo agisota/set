@@ -258,8 +258,14 @@
 		 * UI typeface (themes-fonts epic). The terminal (.xterm) keeps its own
 		 * monospace stack below and is intentionally NOT affected by this change.
 		 */
-		font-family: "SF UI Display Pro", ui-sans-serif, system-ui, sans-serif;
-		font-size: 12px;
+		font-family: var(
+			--rox-ui-font-family,
+			"SF UI Display Pro",
+			ui-sans-serif,
+			system-ui,
+			sans-serif
+		);
+		font-size: var(--rox-ui-font-size, 12px);
 		font-weight: 400;
 	}
 
@@ -461,9 +467,8 @@
  * left nav, the central content/chat area, the right Files panel, cards) use the
  * `bg-background` / `bg-sidebar` / `bg-card` utilities, which are OPAQUE and
  * paint over that vibrancy → the user sees a black panel instead of the
- * wallpaper. Make those surfaces translucent, honoring the Appearance
- * `--surface-opacity` slider, so the vibrancy/wallpaper shows through EVERY
- * surface.
+ * wallpaper. Keep the personality of glass, but dense operator surfaces need a
+ * readable scrim that is stronger than the raw Appearance slider.
  *
  * These rules are intentionally UNLAYERED: a rule inside `@layer base` would
  * lose the cascade to Tailwind's `bg-*` utilities (utilities layer outranks the
@@ -488,7 +493,7 @@
 	):not([data-slot="drawer-content"]) {
 	background-color: color-mix(
 		in srgb,
-		var(--background) calc(var(--surface-opacity) * 100%),
+		var(--background) calc(max(var(--surface-opacity), 0.78) * 100%),
 		transparent
 	);
 }
@@ -496,7 +501,7 @@
 :root.glass .bg-sidebar:not([class*="bg-sidebar/"]) {
 	background-color: color-mix(
 		in srgb,
-		var(--sidebar) calc(var(--surface-opacity) * 100%),
+		var(--sidebar) calc(max(var(--surface-opacity), 0.82) * 100%),
 		transparent
 	);
 }
@@ -504,7 +509,7 @@
 :root.glass .bg-card:not([class*="bg-card/"]) {
 	background-color: color-mix(
 		in srgb,
-		var(--card) calc(var(--surface-opacity) * 100%),
+		var(--card) calc(max(var(--surface-opacity), 0.84) * 100%),
 		transparent
 	);
 }

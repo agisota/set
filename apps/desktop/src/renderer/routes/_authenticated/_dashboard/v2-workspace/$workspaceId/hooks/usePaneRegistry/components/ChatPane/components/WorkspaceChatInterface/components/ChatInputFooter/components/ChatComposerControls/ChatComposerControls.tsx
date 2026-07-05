@@ -1,4 +1,3 @@
-import { ComposerContextRing } from "@rox/ui/ai-elements/composer-context-ring";
 import {
 	PromptInputFooter,
 	PromptInputSubmit,
@@ -6,9 +5,16 @@ import {
 } from "@rox/ui/ai-elements/prompt-input";
 import type { ThinkingLevel } from "@rox/ui/ai-elements/thinking-toggle";
 import { ReasoningLevelSlider } from "@rox/ui/motion";
+import {
+	MicButton,
+	type MicButtonControls,
+	type Recording,
+} from "@rox/ui/voice";
 import type { ChatStatus } from "ai";
 import { ArrowUpIcon, Loader2Icon, SquareIcon } from "lucide-react";
 import type React from "react";
+import { useCallback, useRef } from "react";
+import { getDictationDisabledReason } from "renderer/components/Chat/ChatInterface/components/ChatInputFooter/components/ChatComposerControls/dictationAffordance";
 import { PermissionModePicker } from "renderer/components/Chat/ChatInterface/components/PermissionModePicker";
 import { PlusMenu } from "renderer/components/Chat/ChatInterface/components/PlusMenu";
 import { PILL_BUTTON_CLASS } from "renderer/components/Chat/ChatInterface/styles";
@@ -16,6 +22,8 @@ import type {
 	ModelOption,
 	PermissionMode,
 } from "renderer/components/Chat/ChatInterface/types";
+import { useHotkey } from "renderer/hotkeys";
+import { electronTrpc } from "renderer/lib/electron-trpc";
 import { ModelPicker } from "../../../ModelPicker";
 
 interface ChatComposerControlsProps {
@@ -24,12 +32,8 @@ interface ChatComposerControlsProps {
 	setSelectedModel: React.Dispatch<React.SetStateAction<ModelOption | null>>;
 	modelSelectorOpen: boolean;
 	setModelSelectorOpen: React.Dispatch<React.SetStateAction<boolean>>;
-	/** Persisted selection id that failed to resolve; surfaces in the pill. */
 	unresolvedModelId?: string | null;
 	permissionMode: PermissionMode;
-	// Value-only setter: the underlying PermissionModePicker.onSelectMode only
-	// ever calls it with a concrete mode, so this accepts both the store-backed
-	// `usePermissionModePreference` setter and a plain `useState` dispatcher.
 	setPermissionMode: (mode: PermissionMode) => void;
 	thinkingLevel: ThinkingLevel;
 	setThinkingLevel: (level: ThinkingLevel) => void;
@@ -37,9 +41,10 @@ interface ChatComposerControlsProps {
 	submitStatus?: ChatStatus;
 	submitDisabled?: boolean;
 	onStop: (event: React.MouseEvent) => void;
-	/** Estimated tokens currently in the conversation context window (F42 ring). */
+	onDictationComplete?: (recording: Recording, locked: boolean) => void;
+	dictationTranscribing?: boolean;
+	dictationConfigured?: boolean;
 	usedTokens?: number;
-	/** Selected model's context window in tokens (F42 ring). */
 	maxTokens?: number;
 }
 
@@ -49,7 +54,7 @@ export function ChatComposerControls({
 	setSelectedModel,
 	modelSelectorOpen,
 	setModelSelectorOpen,
-	unresolvedModelId,
+	unresolvedModelId: _unresolvedModelId,
 	permissionMode,
 	setPermissionMode,
 	thinkingLevel,
@@ -58,9 +63,31 @@ export function ChatComposerControls({
 	submitStatus,
 	submitDisabled,
 	onStop,
-	usedTokens,
-	maxTokens,
+	onDictationComplete,
+	dictationTranscribing,
+	dictationConfigured,
+	usedTokens: _usedTokens,
+	maxTokens: _maxTokens,
 }: ChatComposerControlsProps) {
+	const dictationEnabled =
+		electronTrpc.settings.getDictationEnabled.useQuery().data;
+	const { data: permissionStatus } =
+		electronTrpc.permissions.getStatus.useQuery();
+	const micDisabledReason = getDictationDisabledReason({
+		dictationEnabled,
+		dictationConfigured,
+		microphoneGranted: permissionStatus?.microphone,
+	});
+	const micDisabled = micDisabledReason !== undefined;
+	const micControlsRef = useRef<MicButtonControls | null>(null);
+	const handleMicReady = useCallback((controls: MicButtonControls | null) => {
+		micControlsRef.current = controls;
+	}, []);
+	useHotkey("DICTATE", () => {
+		if (micDisabled) return;
+		micControlsRef.current?.toggle();
+	});
+
 	return (
 		<PromptInputFooter>
 			<PromptInputTools className="gap-1.5">
@@ -74,24 +101,22 @@ export function ChatComposerControls({
 					onSelectModel={setSelectedModel}
 					open={modelSelectorOpen}
 					onOpenChange={setModelSelectorOpen}
-					unresolvedModelId={unresolvedModelId}
 				/>
 				<ReasoningLevelSlider
 					level={thinkingLevel}
 					onLevelChange={setThinkingLevel}
 					className={PILL_BUTTON_CLASS}
 				/>
-				{maxTokens && maxTokens > 0 ? (
-					<ComposerContextRing
-						className={PILL_BUTTON_CLASS}
-						maxTokens={maxTokens}
-						modelId={selectedModel?.id}
-						usedTokens={usedTokens ?? 0}
-					/>
-				) : null}
 			</PromptInputTools>
 			<div className="flex items-center gap-2">
 				<PlusMenu />
+				<MicButton
+					onComplete={onDictationComplete}
+					transcribing={dictationTranscribing}
+					disabled={micDisabled}
+					disabledReason={micDisabledReason}
+					onReady={handleMicReady}
+				/>
 				<PromptInputSubmit
 					className="size-[23px] rounded-full border border-transparent bg-foreground/10 shadow-none p-[5px] hover:bg-foreground/20"
 					status={submitStatus}

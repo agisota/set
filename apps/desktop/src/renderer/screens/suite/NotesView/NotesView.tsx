@@ -1,4 +1,9 @@
 import { splitHighlightedSnippet } from "@rox/shared/knowledge/notes-search";
+import {
+	extractTags,
+	normalizeWikiLinkTarget,
+	parseWikiLinks,
+} from "@rox/shared/knowledge/wikilinks";
 import { Button } from "@rox/ui/button";
 import {
 	Dialog,
@@ -29,18 +34,19 @@ import {
 	ChevronUp,
 	FileText,
 	FolderInput,
+	GitBranch,
 	Notebook,
 	Plus,
 	Search,
+	Tags,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedValue } from "renderer/hooks/useDebouncedValue";
 import { useCloudTrpc as useTRPC } from "renderer/lib/api-trpc-react";
 import { logger } from "renderer/lib/logger";
-import { setCanvasRefDragData } from "renderer/routes/_authenticated/_dashboard/canvas/canvasRefDrag";
 import { SuiteQueryError } from "../components/SuiteQueryError";
 import { SuiteScreen } from "../components/SuiteScreen";
-import { NoteReader, type SaveState } from "./components/NoteReader";
+import { CollaborativeNoteEditor } from "./components/CollaborativeNoteEditor";
 
 /**
  * Render a `ts_headline` snippet with matched terms emphasized, splitting on the
@@ -72,36 +78,15 @@ function SnippetText({ snippet }: { snippet: string }) {
 }
 
 /**
- * The server rejects MDX-unsafe note bodies via `assertNoteMarkdownSafe`, which
- * raises an `MdxSecurityError` (message prefixed `Knowledge MDX rejected:`)
- * mapped to a tRPC `BAD_REQUEST`. Detect that specific sentinel so an unsafe
- * paste gets a precise toast WITHOUT false-positiving on unrelated failures —
- * the editor buffer is kept either way.
- */
-function isMarkdownSafetyError(error: unknown): boolean {
-	const message =
-		error instanceof Error
-			? error.message
-			: typeof error === "string"
-				? error
-				: "";
-	return message.includes("Knowledge MDX rejected");
-}
-
-/**
- * Notes (Suite P0): a three-pane workspace — notebooks on the left, the selected
- * notebook's notes in the middle, and the selected note opened on the right in a
- * Notion-grade `NoteReader` (rich Tiptap `MarkdownEditor` body with slash menu /
- * blocks / inline marks, inline title rename, delete, and an autosave-state pill).
- * The body is persisted as markdown via `notes.updateNote` on an 800ms debounce
- * (+ blur and unmount flush). Supports creating a notebook and a note (title +
- * markdown body), renaming and deleting a note, and reordering/moving notes
- * between notebooks. List queries exclude the (up to 500k) markdown column; the
- * full body is fetched per-note via `notes.getNote`. The gated real-time
- * Yjs/Liveblocks co-editing peer still lives in `CollaborativeNoteEditor`.
+ * Notes (Suite P2 surfaced in P0): a three-pane workspace — notebooks on the
+ * left, the selected notebook's notes in the middle, and the selected note's
+ * markdown body edited on the right in `CollaborativeNoteEditor` (single-player
+ * Textarea + autosave by default; a real-time Yjs/Liveblocks co-editing peer when
+ * the `collaboration.editor` experiment is open). Supports creating a notebook and
+ * creating a note (title + markdown body). List queries exclude the (up to 500k)
+ * markdown column; the full body is fetched per-note via `notebooks.getNote`.
  *
- * Cache-first (AGENTS.md rule 9): existing notebooks/notes render immediately;
- * title rename + delete patch the list cache optimistically.
+ * Cache-first (AGENTS.md rule 9): existing notebooks/notes render immediately.
  */
 export function NotesView() {
 	const trpc = useTRPC();
@@ -156,6 +141,21 @@ export function NotesView() {
 		...trpc.notes.getNote.queryOptions({ noteId: activeNoteId ?? "" }),
 		enabled: activeNoteId !== null,
 	});
+	const backlinkSearchTitle = noteQuery.data?.title.trim() ?? "";
+	const backlinksQuery = useQuery({
+		...trpc.notes.searchNotes.queryOptions({
+			query: backlinkSearchTitle,
+			notebookId: activeNotebookId ?? undefined,
+			limit: 8,
+		}),
+		enabled:
+			activeNoteId !== null &&
+			activeNotebookId !== null &&
+			backlinkSearchTitle.length > 0,
+	});
+	const likelyBacklinks = (backlinksQuery.data ?? []).filter(
+		(note) => note.id !== activeNoteId,
+	);
 
 	// --- note body editor (single-player baseline + collaborative-when-gated) ---
 	// The reader pane is an editable markdown editor whose body autosaves through
@@ -169,65 +169,23 @@ export function NotesView() {
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const pendingMarkdownRef = useRef<string | null>(null);
 
-	// Drive the reader's 'Сохранение… → Сохранено' indicator. We hold a short
-	// 'saved' window after a successful body write, then fall back to idle.
-	const [saveState, setSaveState] = useState<SaveState>("idle");
-	const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	useEffect(
-		() => () => {
-			if (savedTimer.current) clearTimeout(savedTimer.current);
-		},
-		[],
-	);
-
 	const updateNote = useMutation(
 		trpc.notes.updateNote.mutationOptions({
-			onMutate: (variables) => {
-				// Only the body autosave should toggle the 'saving' pill (a title
-				// rename has its own optimistic path and no body indicator).
-				if (variables.markdown !== undefined) setSaveState("saving");
-			},
-			onSuccess: (_row, variables) => {
-				if (variables.markdown === undefined) return;
-				setSaveState("saved");
-				if (savedTimer.current) clearTimeout(savedTimer.current);
-				savedTimer.current = setTimeout(() => setSaveState("idle"), 1200);
-			},
-			onError: (error, variables) => {
+			onError: (error) => {
 				logger.error("[NotesView] updateNote failed", error);
-				if (variables.markdown !== undefined) setSaveState("idle");
-				// MDX-unsafe paste / serialization rejected by assertNoteMarkdownSafe:
-				// surface a non-blocking, specific toast and KEEP the editor buffer
-				// (the local editorMarkdown state is untouched) so nothing is lost.
-				if (isMarkdownSafetyError(error)) {
-					toast.error("Не удалось сохранить: недопустимый markdown");
-				} else {
-					toast.error("Не удалось сохранить заметку");
-				}
+				toast.error("Не удалось сохранить заметку");
 			},
 		}),
 	);
 
-	// Hydrate the editor from the loaded note. Re-hydrate when EITHER the note id
-	// changes OR the editor is still empty while the server now has a non-empty body
-	// and nothing is pending — this recovers the create→getNote race where the first
-	// hydrate captured an empty/partial body and the textarea would otherwise stay
-	// frozen empty (spec notes-tiptap quick-fix). The MarkdownEditor's own
-	// focus-aware setContent + per-note remount still prevents background-refetch
-	// clobber, so no in-progress typing is lost (cache-first, AGENTS.md #9).
+	// Hydrate the editor from the loaded note once per note id, so typing is never
+	// clobbered by a background refetch of the same note (cache-first, AGENTS.md #9).
 	useEffect(() => {
-		if (!noteQuery.data) return;
-		const serverMarkdown = noteQuery.data.markdown ?? "";
-		const isNewNote = hydratedNoteId.current !== noteQuery.data.id;
-		const recoversEmpty =
-			editorMarkdown === "" &&
-			serverMarkdown !== "" &&
-			pendingMarkdownRef.current === null;
-		if (isNewNote || recoversEmpty) {
-			setEditorMarkdown(serverMarkdown);
+		if (noteQuery.data && hydratedNoteId.current !== noteQuery.data.id) {
+			setEditorMarkdown(noteQuery.data.markdown ?? "");
 			hydratedNoteId.current = noteQuery.data.id;
 		}
-	}, [noteQuery.data, editorMarkdown]);
+	}, [noteQuery.data]);
 
 	// Keep the freshest mutate fn / note id for the debounced + unmount flush
 	// without re-arming the effect on every keystroke.
@@ -298,92 +256,6 @@ export function NotesView() {
 			onError: (error) => {
 				logger.error("[NotesView] createNote failed", error);
 				toast.error("Не удалось создать заметку");
-			},
-		}),
-	);
-
-	// --- inline title rename + delete (per-note reader affordances) ----------
-	// Both write through notes.updateNote{title} / notes.deleteNote (the backing
-	// knowledge_documents row is the system of record) and patch the list cache
-	// optimistically so the middle column reflects the change in the same frame
-	// (cache-first, AGENTS.md #9). The reader's getNote cache is refreshed on
-	// settle so the header title stays authoritative.
-	const patchNoteTitleInList = (noteId: string, title: string) => {
-		if (!activeNotebookId) return;
-		const key = trpc.notes.listNotes.queryKey({ notebookId: activeNotebookId });
-		queryClient.setQueryData(key, (prev: typeof notes | undefined) =>
-			prev?.map((n) => (n.id === noteId ? { ...n, title } : n)),
-		);
-	};
-
-	const renameNote = useMutation(
-		trpc.notes.updateNote.mutationOptions({
-			onMutate: ({ noteId, title }) => {
-				if (title !== undefined) patchNoteTitleInList(noteId, title);
-			},
-			onSuccess: async (_row, { noteId }) => {
-				await queryClient.invalidateQueries({
-					queryKey: trpc.notes.getNote.queryKey({ noteId }),
-				});
-				if (activeNotebookId) {
-					await queryClient.invalidateQueries({
-						queryKey: trpc.notes.listNotes.queryKey({
-							notebookId: activeNotebookId,
-						}),
-					});
-				}
-			},
-			onError: (error) => {
-				logger.error("[NotesView] renameNote failed", error);
-				toast.error("Не удалось переименовать заметку");
-				// Re-pull the list so the optimistic title is rolled back to truth.
-				if (activeNotebookId) {
-					queryClient.invalidateQueries({
-						queryKey: trpc.notes.listNotes.queryKey({
-							notebookId: activeNotebookId,
-						}),
-					});
-				}
-			},
-		}),
-	);
-
-	const deleteNote = useMutation(
-		trpc.notes.deleteNote.mutationOptions({
-			onMutate: ({ noteId }) => {
-				if (!activeNotebookId) return;
-				const key = trpc.notes.listNotes.queryKey({
-					notebookId: activeNotebookId,
-				});
-				queryClient.setQueryData(key, (prev: typeof notes | undefined) =>
-					prev?.filter((n) => n.id !== noteId),
-				);
-				// If the deleted note was open, clear the reader selection.
-				setActiveNoteId((current) => (current === noteId ? null : current));
-			},
-			onSuccess: async () => {
-				toast.success("Заметка удалена");
-				if (activeNotebookId) {
-					await queryClient.invalidateQueries({
-						queryKey: trpc.notes.listNotes.queryKey({
-							notebookId: activeNotebookId,
-						}),
-					});
-				}
-				await queryClient.invalidateQueries({
-					queryKey: trpc.notes.listNotebooks.queryKey(undefined),
-				});
-			},
-			onError: (error) => {
-				logger.error("[NotesView] deleteNote failed", error);
-				toast.error("Не удалось удалить заметку");
-				if (activeNotebookId) {
-					queryClient.invalidateQueries({
-						queryKey: trpc.notes.listNotes.queryKey({
-							notebookId: activeNotebookId,
-						}),
-					});
-				}
 			},
 		}),
 	);
@@ -474,6 +346,19 @@ export function NotesView() {
 	};
 
 	const otherNotebooks = notebooks.filter((nb) => nb.id !== activeNotebookId);
+	const notesBySlug = useMemo(() => {
+		return new Map(
+			notes.map((note) => [normalizeWikiLinkTarget(note.title), note]),
+		);
+	}, [notes]);
+	const outgoingLinks = useMemo(
+		() => parseWikiLinks(editorMarkdown),
+		[editorMarkdown],
+	);
+	const noteTags = useMemo(() => {
+		const storedTags = (noteQuery.data?.tags ?? []) as string[];
+		return [...new Set([...storedTags, ...extractTags(editorMarkdown)])];
+	}, [editorMarkdown, noteQuery.data?.tags]);
 
 	return (
 		<SuiteScreen
@@ -512,30 +397,36 @@ export function NotesView() {
 			)}
 
 			{notebooks.length > 0 && (
-				<div className="grid h-[calc(100vh-220px)] min-h-96 grid-cols-[200px_240px_1fr] gap-3">
-					{/* Notebooks column */}
-					<div className="overflow-y-auto rounded-lg border border-border">
-						{notebooks.map((notebook) => (
-							<button
-								key={notebook.id}
-								type="button"
-								onClick={() => {
-									setActiveNotebookId(notebook.id);
-									setActiveNoteId(null);
-								}}
-								className={cn(
-									"flex w-full items-center gap-2 border-border border-b px-3 py-2.5 text-left text-sm last:border-b-0 transition-colors hover:bg-accent/40",
-									notebook.id === activeNotebookId && "bg-accent",
-								)}
-							>
-								<span className="shrink-0">{notebook.icon ?? "📓"}</span>
-								<span className="truncate">{notebook.name}</span>
-							</button>
-						))}
+				<div className="flex h-[calc(100vh-220px)] min-h-96 min-w-0 gap-4">
+					<div className="w-[clamp(14rem,17vw,20rem)] min-w-52 max-w-[30vw] resize-x overflow-hidden rounded-lg border border-border bg-card/85">
+						<div className="border-border border-b px-3 py-3">
+							<p className="font-medium text-sm">Хранилище</p>
+							<p className="mt-0.5 text-muted-foreground text-xs">
+								{notebooks.length} блокнот(ов), {notes.length} заметка(и)
+							</p>
+						</div>
+						<div className="max-h-full overflow-y-auto">
+							{notebooks.map((notebook) => (
+								<button
+									key={notebook.id}
+									type="button"
+									onClick={() => {
+										setActiveNotebookId(notebook.id);
+										setActiveNoteId(null);
+									}}
+									className={cn(
+										"flex w-full items-center gap-2 border-border border-b px-3 py-2.5 text-left text-sm last:border-b-0 transition-colors hover:bg-accent/40",
+										notebook.id === activeNotebookId && "bg-accent",
+									)}
+								>
+									<span className="shrink-0">{notebook.icon ?? "📓"}</span>
+									<span className="truncate">{notebook.name}</span>
+								</button>
+							))}
+						</div>
 					</div>
 
-					{/* Notes column */}
-					<div className="flex flex-col overflow-hidden rounded-lg border border-border">
+					<div className="flex w-[clamp(18rem,22vw,24rem)] min-w-64 max-w-[34vw] resize-x flex-col overflow-hidden rounded-lg border border-border bg-card/80">
 						<div className="flex items-center justify-between border-border border-b px-2 py-1.5">
 							<span className="text-muted-foreground text-xs">Заметки</span>
 							<Button
@@ -615,17 +506,8 @@ export function NotesView() {
 										const documentId = note.knowledgeDocumentId;
 										const canManage = documentId != null;
 										return (
-											// biome-ignore lint/a11y/noStaticElementInteractions: native HTML5 drag source for canvas ref-drop; primary open action stays on the inner button
 											<div
 												key={note.id}
-												draggable
-												onDragStart={(event) =>
-													setCanvasRefDragData(event.dataTransfer, {
-														refType: "note",
-														refId: note.id,
-														label: note.title,
-													})
-												}
 												className={cn(
 													"group relative flex items-center border-border border-b last:border-b-0 transition-colors hover:bg-accent/40",
 													note.id === activeNoteId && "bg-accent",
@@ -719,8 +601,7 @@ export function NotesView() {
 						</div>
 					</div>
 
-					{/* Note reader */}
-					<div className="overflow-hidden rounded-lg border border-border">
+					<div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-card/85">
 						{activeNoteId === null ? (
 							<div className="flex h-full flex-col items-center justify-center text-center">
 								<FileText className="mb-3 size-8 text-muted-foreground" />
@@ -733,33 +614,116 @@ export function NotesView() {
 								{noteQuery.error.message}
 							</p>
 						) : noteQuery.data ? (
-							<NoteReader
-								key={noteQuery.data.id}
-								note={noteQuery.data}
-								markdown={editorMarkdown}
-								saveState={saveState}
-								deleting={deleteNote.isPending}
-								onMarkdownChange={handleEditorChange}
-								onMarkdownSave={(next) => {
-									// Blur/explicit flush: cancel the debounce and write now, so a
-									// click-away never loses the last edit (parity w/ AutomationBody).
-									if (saveTimer.current) clearTimeout(saveTimer.current);
-									pendingMarkdownRef.current = null;
-									setEditorMarkdown(next);
-									if (activeNoteId)
-										updateNote.mutate({ noteId: activeNoteId, markdown: next });
-								}}
-								onRenameTitle={(nextTitle) => {
-									if (activeNoteId)
-										renameNote.mutate({
-											noteId: activeNoteId,
-											title: nextTitle,
-										});
-								}}
-								onDelete={() => {
-									if (activeNoteId) deleteNote.mutate({ noteId: activeNoteId });
-								}}
-							/>
+							<div className="flex h-full flex-col">
+								<div className="flex items-center justify-between border-border border-b px-4 py-3">
+									<h2 className="cursor-text select-text font-semibold text-lg">
+										{noteQuery.data.title}
+									</h2>
+									{updateNote.isPending ? (
+										<span className="text-muted-foreground text-xs">
+											Сохранение…
+										</span>
+									) : null}
+								</div>
+								<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(15rem,22rem)] gap-3 p-3 max-xl:grid-cols-1">
+									<div className="flex min-h-0 flex-col">
+										<CollaborativeNoteEditor
+											key={noteQuery.data.id}
+											noteId={noteQuery.data.id}
+											value={editorMarkdown}
+											onChange={handleEditorChange}
+										/>
+									</div>
+									<aside className="flex min-h-0 flex-col gap-3 overflow-y-auto rounded-md border border-border bg-background/70 p-3">
+										<section>
+											<div className="mb-2 flex items-center gap-2 text-muted-foreground text-xs uppercase">
+												<Tags className="size-3.5" />
+												Теги
+											</div>
+											{noteTags.length === 0 ? (
+												<p className="text-muted-foreground text-xs">
+													Добавьте #tag в текст заметки.
+												</p>
+											) : (
+												<div className="flex flex-wrap gap-1.5">
+													{noteTags.map((tag) => (
+														<span
+															key={tag}
+															className="rounded border border-border bg-muted/60 px-2 py-0.5 text-xs"
+														>
+															#{tag}
+														</span>
+													))}
+												</div>
+											)}
+										</section>
+
+										<section>
+											<div className="mb-2 flex items-center gap-2 text-muted-foreground text-xs uppercase">
+												<GitBranch className="size-3.5" />
+												Связи
+											</div>
+											{outgoingLinks.length === 0 ? (
+												<p className="text-muted-foreground text-xs">
+													Свяжите заметки через [[название]].
+												</p>
+											) : (
+												<div className="space-y-1.5">
+													{outgoingLinks.map((link) => {
+														const linkedNote = notesBySlug.get(link.target);
+														return (
+															<button
+																key={`${link.raw}:${link.target}`}
+																type="button"
+																disabled={!linkedNote}
+																onClick={() => {
+																	if (linkedNote)
+																		setActiveNoteId(linkedNote.id);
+																}}
+																className="flex w-full items-center justify-between gap-2 rounded border border-border bg-muted/50 px-2 py-1.5 text-left text-xs transition-colors enabled:hover:bg-accent disabled:cursor-default"
+															>
+																<span className="truncate">
+																	{link.alias ?? link.target}
+																</span>
+																<span className="shrink-0 text-muted-foreground">
+																	{linkedNote ? "открыть" : "нет заметки"}
+																</span>
+															</button>
+														);
+													})}
+												</div>
+											)}
+										</section>
+
+										<section>
+											<div className="mb-2 text-muted-foreground text-xs uppercase">
+												Вероятные обратные ссылки
+											</div>
+											{backlinksQuery.isFetching &&
+											likelyBacklinks.length === 0 ? (
+												<p className="text-muted-foreground text-xs">Поиск…</p>
+											) : likelyBacklinks.length === 0 ? (
+												<p className="text-muted-foreground text-xs">
+													Пока нет заметок, которые явно ссылаются на текущую.
+												</p>
+											) : (
+												<div className="space-y-1.5">
+													{likelyBacklinks.map((note) => (
+														<button
+															key={note.id}
+															type="button"
+															onClick={() => setActiveNoteId(note.id)}
+															className="w-full rounded border border-border bg-muted/50 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent"
+														>
+															<span className="line-clamp-1">{note.title}</span>
+														</button>
+													))}
+												</div>
+											)}
+										</section>
+									</aside>
+								</div>
+							</div>
 						) : (
 							<div className="space-y-3 p-4">
 								<Skeleton className="h-6 w-1/2" />

@@ -124,6 +124,15 @@ export class HostServiceCoordinator extends EventEmitter {
 	private lastConfigs = new Map<string, SpawnConfig>();
 	private respawnAttempts = new Map<string, number>();
 	private respawnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private readonly resolveChildEnv: typeof getProcessEnvWithShellPath;
+
+	constructor(options?: {
+		resolveChildEnv?: typeof getProcessEnvWithShellPath;
+	}) {
+		super();
+		this.resolveChildEnv =
+			options?.resolveChildEnv ?? getProcessEnvWithShellPath;
+	}
 
 	async start(
 		organizationId: string,
@@ -573,7 +582,7 @@ export class HostServiceCoordinator extends EventEmitter {
 		const row = this.readSettingsForHostService();
 		const exposeViaRelay = row?.exposeHostServiceViaRelay ?? false;
 
-		const childEnv = await getProcessEnvWithShellPath({
+		const childEnv = await this.resolveChildEnv({
 			...(process.env as Record<string, string>),
 			ELECTRON_RUN_AS_NODE: "1",
 			NODE_ENV: app.isPackaged

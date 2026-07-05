@@ -24,6 +24,8 @@ import type {
 export const DEFAULT_SETTINGS_BRANCH_PREFIX_MODE =
 	"custom" satisfies BranchPrefixMode;
 export const DEFAULT_SETTINGS_BRANCH_PREFIX_CUSTOM = "rox";
+export const DEFAULT_SETTINGS_UI_FONT_FAMILY = "SF UI Display Pro";
+export const DEFAULT_SETTINGS_UI_FONT_SIZE = 12;
 export const DEFAULT_SETTINGS_EDITOR_FONT_FAMILY = "SF UI Display Pro";
 export const DEFAULT_SETTINGS_EDITOR_FONT_SIZE = 12;
 export const DEFAULT_SETTINGS_TERMINAL_FONT_FAMILY = "Geist Mono";
@@ -236,6 +238,8 @@ export const settings = sqliteTable("settings", {
 	useCompactTerminalAddButton: integer("use_compact_terminal_add_button", {
 		mode: "boolean",
 	}),
+	uiFontFamily: text("ui_font_family").default(DEFAULT_SETTINGS_UI_FONT_FAMILY),
+	uiFontSize: integer("ui_font_size").default(DEFAULT_SETTINGS_UI_FONT_SIZE),
 	terminalFontFamily: text("terminal_font_family").default(
 		DEFAULT_SETTINGS_TERMINAL_FONT_FAMILY,
 	),
@@ -269,15 +273,12 @@ export const settings = sqliteTable("settings", {
 		mode: "boolean",
 	}).default(false),
 	voiceAgentContext: text("voice_agent_context").default(""),
-	// FN-043 (#486): Text-to-speech voice for the "Прослушать" button on agent
-	// replies (edge-TTS, free for everyone). Null = use DEFAULT_TTS_VOICE. Stored
-	// as the edge-TTS short voice name (e.g. "ru-RU-DmitryNeural").
-	ttsVoice: text("tts_voice"),
 	// Push-to-talk (live.pushToTalkDesktop): the global TOGGLE-to-talk shortcut,
 	// stored as a native Electron `globalShortcut` accelerator string (e.g.
 	// "CommandOrControl+Shift+M") so the main process can register it directly.
 	// Null = fall back to DEFAULT_PUSH_TO_TALK_ACCELERATOR.
 	pushToTalkAccelerator: text("push_to_talk_accelerator"),
+	ttsVoice: text("tts_voice"),
 });
 
 export type InsertSettings = typeof settings.$inferInsert;

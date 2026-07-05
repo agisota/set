@@ -76,6 +76,10 @@ function formatFixed(value: number, digits = 2) {
 	}).format(value);
 }
 
+function formatMoney(value: string | number | null | undefined) {
+	return formatFixed(toNumber(value));
+}
+
 function isWithinPeriod(date: Date | null, period: PeriodFilter) {
 	if (period === "all" || !date) return true;
 	const days = period === "7d" ? 7 : period === "30d" ? 30 : 90;
@@ -275,13 +279,10 @@ export function AccountUsagePanel() {
 			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
 				<Metric
 					label="Баланс Rox"
-					value={overview?.balance.balanceRox ?? "500"}
+					value={formatMoney(overview?.balance.balanceRox ?? "500")}
 				/>
 				<Metric label="Потрачено Rox" value={formatFixed(totals.roxCost)} />
-				<Metric
-					label="Расходы USD"
-					value={`$${formatFixed(totals.usdCost, 4)}`}
-				/>
+				<Metric label="Расходы USD" value={`$${formatFixed(totals.usdCost)}`} />
 				<Metric
 					label="Токены"
 					value={formatNumber(totals.tokensIn + totals.tokensOut)}
@@ -289,7 +290,7 @@ export function AccountUsagePanel() {
 				<Metric label="Запросы" value={formatNumber(totals.requests)} />
 			</div>
 
-			<div className="grid gap-3 lg:grid-cols-[1fr_160px_200px_180px]">
+			<div className="grid gap-3 xl:grid-cols-[minmax(220px,1fr)_150px_190px_180px]">
 				<Input
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
@@ -439,7 +440,9 @@ export function AccountUsagePanel() {
 											{formatDate(entry.createdAt)}
 										</div>
 									</div>
-									<div className="font-mono">{entry.deltaRox} Rox</div>
+									<div className="font-mono">
+										{formatMoney(entry.deltaRox)} Rox
+									</div>
 								</div>
 							))}
 							{overview?.ledger.length === 0 && (
@@ -485,7 +488,7 @@ export function AccountUsagePanel() {
 										{formatFixed(toNumber(request.roxCost))}
 									</TableCell>
 									<TableCell className="text-right">
-										{formatFixed(toNumber(request.usdCost), 4)}
+										{formatMoney(request.usdCost)}
 									</TableCell>
 								</TableRow>
 							))}

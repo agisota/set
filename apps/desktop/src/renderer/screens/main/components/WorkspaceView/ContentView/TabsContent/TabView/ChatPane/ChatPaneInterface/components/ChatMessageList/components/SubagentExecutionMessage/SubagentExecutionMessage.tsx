@@ -23,9 +23,9 @@ interface SubagentExecutionMessageProps {
 }
 
 function getStatusLabel(status: "running" | "completed" | "error"): string {
-	if (status === "running") return "Running";
-	if (status === "completed") return "Completed";
-	return "Failed";
+	if (status === "running") return "Выполняется";
+	if (status === "completed") return "Завершено";
+	return "Ошибка";
 }
 
 function getStatusClassName(status: "running" | "completed" | "error"): string {
@@ -49,7 +49,7 @@ export function SubagentExecutionMessage({
 	const content = (
 		<div className="w-full max-w-none space-y-3 rounded-xl border bg-card/95 p-3">
 			<div className="text-sm font-medium text-foreground">
-				Subagent activity
+				Активность субагентов
 			</div>
 			<motion.div
 				className="space-y-3"

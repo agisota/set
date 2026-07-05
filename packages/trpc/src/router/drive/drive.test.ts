@@ -232,6 +232,45 @@ describe("drive.createFolder", () => {
 	});
 });
 
+describe("drive.organizeFolder", () => {
+	test("reports an empty folder without creating folders", async () => {
+		state.selectQueue = [[]];
+		const res = await authedCaller().drive.organizeFolder();
+		expect(res.ok).toBe(true);
+		expect(res.movedCount).toBe(0);
+		expect(res.createdFolderCount).toBe(0);
+		expect(state.inserted).toHaveLength(0);
+	});
+
+	test("creates a type folder and moves current-folder files into it", async () => {
+		state.selectQueue = [
+			[
+				{
+					id: FILE_ID,
+					userId: "user-1",
+					name: "brief.pdf",
+					mediaType: "application/pdf",
+					folderId: null,
+					trashedAt: null,
+				},
+			],
+			[],
+		];
+		state.insertReturning = [{ id: "folder-docs", name: "Документы" }];
+
+		const res = await authedCaller().drive.organizeFolder();
+
+		expect(res.ok).toBe(true);
+		expect(res.movedCount).toBe(1);
+		expect(res.createdFolderCount).toBe(1);
+		expect(res.targets).toEqual([
+			{ key: "documents", folderId: "folder-docs", folderName: "Документы" },
+		]);
+		expect(lastInsertInto("drive_folders")?.name).toBe("Документы");
+		expect(state.updated).toContainEqual({ folderId: "folder-docs" });
+	});
+});
+
 describe("drive.requestUpload", () => {
 	test("fails cleanly when R2 is unconfigured (null provider)", async () => {
 		setDriveStorageForTest(null);
@@ -635,7 +674,8 @@ describe("drive.createShare", () => {
 	});
 
 	test("creates a file share with a generated token + hashed password", async () => {
-		state.selectQueue = [[{ id: FILE_ID, userId: "user-1" }]]; // getOwnedFile
+		setDriveStorageForTest(mockStorage().provider);
+		state.selectQueue = [[{ id: FILE_ID, userId: "user-1", status: "clean" }]]; // getOwnedFile
 		state.insertReturning = [{ id: SHARE_ID, token: "tok" }];
 		const res = await authedCaller().drive.createShare({
 			fileId: FILE_ID,
@@ -650,6 +690,48 @@ describe("drive.createShare", () => {
 		expect(typeof vals?.passwordHash).toBe("string");
 		expect((vals?.passwordHash as string).startsWith("scrypt$")).toBe(true);
 		expect(vals?.expiresAt).toBeInstanceOf(Date);
+	});
+
+	test("rejects a clean file share when object storage is unconfigured", async () => {
+		setDriveStorageForTest(null);
+		state.selectQueue = [[{ id: FILE_ID, userId: "user-1", status: "clean" }]];
+
+		await expect(
+			authedCaller().drive.createShare({ fileId: FILE_ID }),
+		).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+
+		expect(state.inserted).toHaveLength(0);
+	});
+
+	test("rejects a non-clean file share instead of minting a dead link", async () => {
+		setDriveStorageForTest(mockStorage().provider);
+		state.selectQueue = [
+			[{ id: FILE_ID, userId: "user-1", status: "scanning" }],
+		];
+
+		await expect(
+			authedCaller().drive.createShare({ fileId: FILE_ID }),
+		).rejects.toMatchObject({
+			code: "PRECONDITION_FAILED",
+			message: "This file is still being processed and cannot be shared yet.",
+		});
+
+		expect(state.inserted).toHaveLength(0);
+	});
+
+	test("creates a folder share without object storage", async () => {
+		setDriveStorageForTest(null);
+		state.selectQueue = [[{ id: _FOLDER_ID, userId: "user-1" }]];
+		state.insertReturning = [{ id: SHARE_ID, token: "folder-tok" }];
+
+		const res = await authedCaller().drive.createShare({
+			folderId: _FOLDER_ID,
+		});
+
+		expect(res?.id).toBe(SHARE_ID);
+		const vals = lastInsertInto("drive_shares");
+		expect(vals?.folderId).toBe(_FOLDER_ID);
+		expect(vals?.fileId).toBeNull();
 	});
 });
 

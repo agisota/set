@@ -44,6 +44,10 @@ export const moveFolderSchema = z.object({
 
 export const deleteFolderSchema = z.object({ folderId: uuid });
 
+export const organizeFolderSchema = z
+	.object({ folderId: uuid.nullable().optional() })
+	.optional();
+
 // ---- files -----------------------------------------------------------------
 
 export const renameFileSchema = z.object({

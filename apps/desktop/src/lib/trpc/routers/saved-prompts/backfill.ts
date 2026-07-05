@@ -5,7 +5,7 @@
 // `SyntaxError: Export named 'savedPrompts' not found`. Importing directly from
 // the source module bypasses the star re-export entirely.
 import { savedPrompts } from "@rox/local-db/schema/schema";
-import { eq, like, or, sql } from "drizzle-orm";
+import { eq, isNull, like, or, sql } from "drizzle-orm";
 import type { LocalDb } from "main/lib/local-db";
 
 /**
@@ -113,7 +113,7 @@ export function backfillSavedPromptMetadata(db: LocalDb): void {
 		.where(
 			or(
 				like(savedPrompts.body, "%<!--rox:meta%"),
-				sql`${savedPrompts.position} is null`,
+				isNull(savedPrompts.position),
 			),
 		)
 		.all();

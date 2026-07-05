@@ -53,8 +53,10 @@ export function DashboardNewWorkspaceModal() {
 					onOpenChange={(open) => !open && closeModal()}
 				>
 					<DialogHeader className="sr-only">
-						<DialogTitle>New Workspace</DialogTitle>
-						<DialogDescription>Create a new workspace</DialogDescription>
+						<DialogTitle>Новое рабочее пространство</DialogTitle>
+						<DialogDescription>
+							Создать новое рабочее пространство
+						</DialogDescription>
 					</DialogHeader>
 					<DialogContent
 						showCloseButton={false}

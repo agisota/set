@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+	getAllowedSectionsForVariant,
 	SETTING_ITEM_ID,
 	SETTINGS_ITEMS,
 	type SettingsItem,
@@ -70,6 +71,48 @@ describe("settings search - share settings", () => {
 		const results = searchSettings("share");
 		const ids = getIds(results);
 		expect(ids).toContain(SETTING_ITEM_ID.PUBLIC_SHARES);
+	});
+});
+
+describe("settings search - voice settings", () => {
+	it("registers voice settings so the Voice sidebar section is visible", () => {
+		const ids = getIds(SETTINGS_ITEMS);
+		expect(ids).toContain(SETTING_ITEM_ID.VOICE_INPUT);
+		expect(ids).toContain(SETTING_ITEM_ID.VOICE_OUTPUT);
+		expect(ids).toContain(SETTING_ITEM_ID.VOICE_ALWAYS_ON_AGENT);
+		expect(ids).toContain(SETTING_ITEM_ID.VOICE_AGENT_CONTEXT);
+		expect(ids).toContain(SETTING_ITEM_ID.VOICE_HISTORY);
+
+		expect(getAllowedSectionsForVariant(false).has("voice")).toBe(true);
+		expect(getAllowedSectionsForVariant(true).has("voice")).toBe(true);
+	});
+
+	it("finds voice settings by Russian and English microphone terms", () => {
+		expect(getIds(searchSettings("микрофон"))).toContain(
+			SETTING_ITEM_ID.VOICE_INPUT,
+		);
+		expect(getIds(searchSettings("dictation"))).toContain(
+			SETTING_ITEM_ID.VOICE_INPUT,
+		);
+		expect(getIds(searchSettings("edge-tts"))).toContain(
+			SETTING_ITEM_ID.VOICE_OUTPUT,
+		);
+	});
+});
+
+describe("settings search - experimental settings", () => {
+	it("uses Russian-first visible copy for the experiments entry", () => {
+		const item = SETTINGS_ITEMS.find(
+			(setting) => setting.id === SETTING_ITEM_ID.EXPERIMENTAL_TEAM_OS,
+		);
+
+		expect(item?.title).toBe("Экспериментальные функции");
+		expect(item?.description).toContain("шаблонов");
+		expect(item?.title).not.toContain("Agent-Native Team OS");
+		expect(item?.description).not.toContain("templates");
+		expect(getIds(searchSettings("эксперименты"))).toContain(
+			SETTING_ITEM_ID.EXPERIMENTAL_TEAM_OS,
+		);
 	});
 });
 

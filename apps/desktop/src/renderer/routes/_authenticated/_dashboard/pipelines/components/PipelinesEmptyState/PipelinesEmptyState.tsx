@@ -29,7 +29,7 @@ export function PipelinesEmptyState({
 					отредактировать на холсте.
 				</p>
 			</div>
-			<div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+			<div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
 				{PIPELINE_TEMPLATES.map((template) => (
 					<PipelineTemplateCard
 						key={template.id}

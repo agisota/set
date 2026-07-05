@@ -18,6 +18,8 @@ import {
 	DEFAULT_SETTINGS_EDITOR_FONT_SIZE,
 	DEFAULT_SETTINGS_TERMINAL_FONT_FAMILY,
 	DEFAULT_SETTINGS_TERMINAL_FONT_SIZE,
+	DEFAULT_SETTINGS_UI_FONT_FAMILY,
+	DEFAULT_SETTINGS_UI_FONT_SIZE,
 } from "@rox/local-db/schema";
 import {
 	AGENT_PRESET_COMMANDS,
@@ -119,6 +121,8 @@ const DEFAULT_SETTINGS_VALUES = {
 	id: 1,
 	branchPrefixMode: DEFAULT_SETTINGS_BRANCH_PREFIX_MODE,
 	branchPrefixCustom: DEFAULT_SETTINGS_BRANCH_PREFIX_CUSTOM,
+	uiFontFamily: DEFAULT_SETTINGS_UI_FONT_FAMILY,
+	uiFontSize: DEFAULT_SETTINGS_UI_FONT_SIZE,
 	terminalFontFamily: DEFAULT_SETTINGS_TERMINAL_FONT_FAMILY,
 	terminalFontSize: DEFAULT_SETTINGS_TERMINAL_FONT_SIZE,
 	editorFontFamily: DEFAULT_SETTINGS_EDITOR_FONT_FAMILY,
@@ -1009,6 +1013,8 @@ export const createSettingsRouter = () => {
 		getFontSettings: publicProcedure.query(() => {
 			const row = getSettings();
 			return {
+				uiFontFamily: row.uiFontFamily ?? null,
+				uiFontSize: row.uiFontSize ?? null,
 				terminalFontFamily: row.terminalFontFamily ?? null,
 				terminalFontSize: row.terminalFontSize ?? null,
 				editorFontFamily: row.editorFontFamily ?? null,

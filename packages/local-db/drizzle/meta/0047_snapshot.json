@@ -1,8 +1,8 @@
 {
+  "id": "176856d8-2edd-421e-8c2a-5184df20261d",
+  "prevId": "2911a4a8-f20d-4bdc-b0d4-e988686948da",
   "version": "6",
   "dialect": "sqlite",
-  "id": "d519e895-b749-4198-b6b8-851a4eaa2e67",
-  "prevId": "2911a4a8-f20d-4bdc-b0d4-e988686948da",
   "tables": {
     "approval_requests": {
       "name": "approval_requests",
@@ -461,28 +461,28 @@
         "organization_members_organization_id_organizations_id_fk": {
           "name": "organization_members_organization_id_organizations_id_fk",
           "tableFrom": "organization_members",
-          "tableTo": "organizations",
           "columnsFrom": [
             "organization_id"
           ],
+          "tableTo": "organizations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "organization_members_user_id_users_id_fk": {
           "name": "organization_members_user_id_users_id_fk",
           "tableFrom": "organization_members",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -882,6 +882,20 @@
         },
         "use_compact_terminal_add_button": {
           "name": "use_compact_terminal_add_button",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ui_font_family": {
+          "name": "ui_font_family",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ui_font_size": {
+          "name": "ui_font_size",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -1571,41 +1585,41 @@
         "tasks_organization_id_organizations_id_fk": {
           "name": "tasks_organization_id_organizations_id_fk",
           "tableFrom": "tasks",
-          "tableTo": "organizations",
           "columnsFrom": [
             "organization_id"
           ],
+          "tableTo": "organizations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "tasks_assignee_id_users_id_fk": {
           "name": "tasks_assignee_id_users_id_fk",
           "tableFrom": "tasks",
-          "tableTo": "users",
           "columnsFrom": [
             "assignee_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "tasks_creator_id_users_id_fk": {
           "name": "tasks_creator_id_users_id_fk",
           "tableFrom": "tasks",
-          "tableTo": "users",
           "columnsFrom": [
             "creator_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2268,15 +2282,15 @@
         "workspace_sections_project_id_projects_id_fk": {
           "name": "workspace_sections_project_id_projects_id_fk",
           "tableFrom": "workspace_sections",
-          "tableTo": "projects",
           "columnsFrom": [
             "project_id"
           ],
+          "tableTo": "projects",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2428,41 +2442,41 @@
         "workspaces_project_id_projects_id_fk": {
           "name": "workspaces_project_id_projects_id_fk",
           "tableFrom": "workspaces",
-          "tableTo": "projects",
           "columnsFrom": [
             "project_id"
           ],
+          "tableTo": "projects",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "workspaces_worktree_id_worktrees_id_fk": {
           "name": "workspaces_worktree_id_worktrees_id_fk",
           "tableFrom": "workspaces",
-          "tableTo": "worktrees",
           "columnsFrom": [
             "worktree_id"
           ],
+          "tableTo": "worktrees",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "workspaces_section_id_workspace_sections_id_fk": {
           "name": "workspaces_section_id_workspace_sections_id_fk",
           "tableFrom": "workspaces",
-          "tableTo": "workspace_sections",
           "columnsFrom": [
             "section_id"
           ],
+          "tableTo": "workspace_sections",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -2557,15 +2571,15 @@
         "worktrees_project_id_projects_id_fk": {
           "name": "worktrees_project_id_projects_id_fk",
           "tableFrom": "worktrees",
-          "tableTo": "projects",
           "columnsFrom": [
             "project_id"
           ],
+          "tableTo": "projects",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2609,51 +2623,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "folder": {
-          "name": "folder",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "tags": {
-          "name": "tags",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "is_favorite": {
-          "name": "is_favorite",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "copy_count": {
-          "name": "copy_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "last_used_at": {
-          "name": "last_used_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -2661,34 +2630,6 @@
           "name": "saved_prompts_updated_at_idx",
           "columns": [
             "updated_at"
-          ],
-          "isUnique": false
-        },
-        "saved_prompts_folder_idx": {
-          "name": "saved_prompts_folder_idx",
-          "columns": [
-            "folder"
-          ],
-          "isUnique": false
-        },
-        "saved_prompts_is_favorite_idx": {
-          "name": "saved_prompts_is_favorite_idx",
-          "columns": [
-            "is_favorite"
-          ],
-          "isUnique": false
-        },
-        "saved_prompts_copy_count_idx": {
-          "name": "saved_prompts_copy_count_idx",
-          "columns": [
-            "copy_count"
-          ],
-          "isUnique": false
-        },
-        "saved_prompts_position_idx": {
-          "name": "saved_prompts_position_idx",
-          "columns": [
-            "position"
           ],
           "isUnique": false
         }
@@ -2862,9 +2803,9 @@
   "views": {},
   "enums": {},
   "_meta": {
+    "columns": {},
     "schemas": {},
-    "tables": {},
-    "columns": {}
+    "tables": {}
   },
   "internal": {
     "indexes": {}

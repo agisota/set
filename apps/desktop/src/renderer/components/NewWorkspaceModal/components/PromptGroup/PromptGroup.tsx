@@ -29,8 +29,11 @@ import {
 } from "@rox/ui/command";
 import { Input } from "@rox/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@rox/ui/popover";
+import { toast } from "@rox/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@rox/ui/tooltip";
 import { cn } from "@rox/ui/utils";
+import { blobToBase64, MicButton, type Recording } from "@rox/ui/voice";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -39,7 +42,7 @@ import {
 	PaperclipIcon,
 	PlusIcon,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
 	GoArrowUpRight,
 	GoGitBranch,
@@ -49,11 +52,13 @@ import {
 import { HiCheck, HiChevronUpDown } from "react-icons/hi2";
 import { LuFolderGit, LuFolderOpen, LuGitPullRequest } from "react-icons/lu";
 import { AgentSelect } from "renderer/components/AgentSelect";
+import { getDictationDisabledReason } from "renderer/components/Chat/ChatInterface/components/ChatInputFooter/components/ChatComposerControls/dictationAffordance";
 import { LinkedIssuePill } from "renderer/components/Chat/ChatInterface/components/ChatInputFooter/components/LinkedIssuePill";
 import { useAgentLaunchPreferences } from "renderer/hooks/useAgentLaunchPreferences";
 import { PLATFORM } from "renderer/hotkeys";
 import { electronTrpc } from "renderer/lib/electron-trpc";
 import { formatRelativeTime } from "renderer/lib/formatRelativeTime";
+import { apiClient } from "renderer/routes/_authenticated/providers/CollectionsProvider/collections";
 import { ProjectThumbnail } from "renderer/screens/main/components/WorkspaceSidebar/ProjectSection/ProjectThumbnail";
 import { useNewWorkspaceModalOpen } from "renderer/stores/new-workspace-modal";
 import type { LinkedPR } from "../../NewWorkspaceModalDraftContext";
@@ -574,6 +579,51 @@ function PromptGroupInner({
 		createFromPr,
 		runAsyncAction,
 	});
+	const electronUtils = electronTrpc.useUtils();
+	const dictationEnabled =
+		electronTrpc.settings.getDictationEnabled.useQuery().data;
+	const { data: permissionStatus } =
+		electronTrpc.permissions.getStatus.useQuery();
+	const { data: voiceConfig } = useQuery({
+		queryKey: ["voice", "isConfigured"],
+		queryFn: () => apiClient.voice.isConfigured.query(),
+		staleTime: Number.POSITIVE_INFINITY,
+	});
+	const micDisabledReason = getDictationDisabledReason({
+		dictationEnabled,
+		dictationConfigured: voiceConfig?.configured,
+		microphoneGranted: permissionStatus?.microphone,
+	});
+	const [dictationTranscribing, setDictationTranscribing] = useState(false);
+	const handleDictationComplete = useCallback(
+		async (recording: Recording) => {
+			setDictationTranscribing(true);
+			try {
+				const audioBase64 = await blobToBase64(recording.blob);
+				const voiceAgentContext =
+					await electronUtils.settings.getVoiceAgentContext
+						.fetch()
+						.catch(() => "");
+				const result = await apiClient.voice.transcribe.mutate({
+					audioBase64,
+					mimeType: recording.mimeType,
+					durationMs: recording.durationMs,
+					voiceAgentContext: voiceAgentContext?.trim() || undefined,
+				});
+				const text = (result.processed?.ru || result.rawText || "").trim();
+				if (!text) {
+					toast.info("Не удалось распознать речь");
+					return;
+				}
+				updateDraft({ prompt: prompt ? `${prompt} ${text}` : text });
+			} catch {
+				toast.error("Ошибка расшифровки — запись сохранена для повтора");
+			} finally {
+				setDictationTranscribing(false);
+			}
+		},
+		[electronUtils, prompt, updateDraft],
+	);
 
 	const {
 		project,
@@ -762,7 +812,7 @@ function PromptGroupInner({
 							triggerClassName={`${PILL_BUTTON_CLASS} px-1.5 gap-1 text-foreground w-auto max-w-[160px]`}
 							iconClassName="size-3 object-contain"
 							allowNone
-							noneLabel="No agent"
+							noneLabel="Без агента"
 							noneValue="none"
 						/>
 					</PromptInputTools>
@@ -799,6 +849,12 @@ function PromptGroupInner({
 							repoName={project?.mainRepoPath.split("/").pop() ?? null}
 							anchorRef={plusMenuRef}
 						/>
+						<MicButton
+							onComplete={handleDictationComplete}
+							transcribing={dictationTranscribing}
+							disabled={micDisabledReason !== undefined}
+							disabledReason={micDisabledReason}
+						/>
 						<PromptInputSubmit
 							className="size-[22px] rounded-full border border-transparent bg-foreground/10 shadow-none p-[5px] hover:bg-foreground/20"
 							onClick={(e) => {
@@ -832,7 +888,7 @@ function PromptGroupInner({
 								className="flex items-center gap-1 text-xs text-muted-foreground"
 							>
 								<LuGitPullRequest className="size-3 shrink-0" />
-								based off PR #{linkedPR.prNumber}
+								от PR #{linkedPR.prNumber}
 							</motion.span>
 						) : (
 							<motion.div
@@ -863,7 +919,7 @@ function PromptGroupInner({
 					</AnimatePresence>
 				</div>
 				<span className="text-[11px] text-muted-foreground/50">
-					{modKey}↵ to create
+					{modKey}↵ создать
 				</span>
 			</div>
 		</div>

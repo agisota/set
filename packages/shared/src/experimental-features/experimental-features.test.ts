@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
 	EXPERIMENTAL_FEATURE_CATEGORIES,
+	EXPERIMENTAL_FEATURE_CATEGORY_LABELS,
 	EXPERIMENTAL_FEATURES,
+	formatExperimentalFeatureSurfaceLabel,
 	getExperimentalFeatureDefinition,
+	getExperimentalFeatureDisplayCopy,
 	isExperimentalFeatureId,
 	listExperimentalFeatures,
 	resolveExperimentalFeatureState,
@@ -50,6 +53,39 @@ describe("experimental features registry", () => {
 		expect(categorizedCount).toBe(EXPERIMENTAL_FEATURES.length);
 	});
 
+	test("provides Russian-first visible copy for the experiments catalog", () => {
+		expect(EXPERIMENTAL_FEATURE_CATEGORY_LABELS.templates).toBe("Шаблоны");
+		expect(EXPERIMENTAL_FEATURE_CATEGORY_LABELS.rooms).toBe(
+			"Объединённые процессы",
+		);
+		expect(formatExperimentalFeatureSurfaceLabel("Template gallery")).toBe(
+			"Галерея шаблонов",
+		);
+
+		const forbiddenVisibleLabels = [
+			"Needs config",
+			"Available",
+			"Stubbed",
+			"Templates",
+			"Agent Onboarding Templates",
+			"Database Mapper Templates",
+		];
+
+		for (const feature of EXPERIMENTAL_FEATURES) {
+			const copy = getExperimentalFeatureDisplayCopy(feature);
+			const visibleCopy = [
+				EXPERIMENTAL_FEATURE_CATEGORY_LABELS[feature.category],
+				copy.title,
+				copy.shortDescription,
+				copy.longDescription,
+				...feature.affectedSurfaces.map(formatExperimentalFeatureSurfaceLabel),
+			].join(" ");
+			for (const label of forbiddenVisibleLabels) {
+				expect(visibleCopy).not.toContain(label);
+			}
+		}
+	});
+
 	test("resolves a disabled user override without changing availability", () => {
 		const state = resolveExperimentalFeatureState(
 			"agentNative.screenContextBus",
@@ -71,7 +107,15 @@ describe("experimental features registry", () => {
 		expect(state.enabled).toBe(true);
 		expect(state.userOverride).toBeNull();
 		expect(state.availability).toBe("needs_configuration");
+		expect(
+			state.missingDependencies?.map((dependency) => dependency.id),
+		).toEqual(["livekit"]);
+		expect(state.reason).toContain("Требуется настройка");
 		expect(state.reason).toContain("LiveKit");
+		expect(state.reason).toContain("Настройте URL LiveKit");
+		expect(state.reason).toContain("Значения секретов здесь не показываются");
+		expect(state.reason).not.toContain("LIVEKIT_API_SECRET");
+		expect(state.reason).not.toContain("NEXT_PUBLIC_LIVEKIT_URL");
 	});
 
 	test("reports blocked kill switches as disabled", () => {

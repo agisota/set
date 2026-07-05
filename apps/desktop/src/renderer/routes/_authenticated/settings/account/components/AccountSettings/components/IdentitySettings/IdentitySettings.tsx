@@ -99,7 +99,6 @@ export function IdentitySettings() {
 	}
 
 	const canClaim = identity?.canClaimHandle ?? false;
-	const missingProviders = identity?.missingProviders ?? [];
 	const connectedAccounts = identity?.connectedAccounts ?? [];
 
 	return (
@@ -164,8 +163,9 @@ export function IdentitySettings() {
 					</p>
 				) : (
 					<p className="select-text cursor-text text-xs text-amber-600 dark:text-amber-500">
-						Привяжите аккаунты, чтобы выбрать имя пользователя:{" "}
-						{missingProviders.map(providerLabel).join(", ")}.
+						Имя пользователя можно выбрать после подтверждения аккаунта через
+						поддерживаемый способ входа. Подключите или подтвердите аккаунт в
+						разделе входа.
 					</p>
 				)}
 			</div>

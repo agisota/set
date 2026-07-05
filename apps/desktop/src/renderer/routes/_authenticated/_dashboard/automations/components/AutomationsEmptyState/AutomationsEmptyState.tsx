@@ -13,7 +13,7 @@ export function AutomationsEmptyState({
 	onSelectTemplate,
 }: AutomationsEmptyStateProps) {
 	return (
-		<div className="mx-auto flex max-w-5xl flex-col gap-8">
+		<div className="flex w-full flex-col gap-8">
 			<div className="flex flex-col gap-1">
 				<h2 className="text-base font-semibold tracking-tight">
 					Начните с шаблона
@@ -28,7 +28,7 @@ export function AutomationsEmptyState({
 						<h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
 							{category.label}
 						</h3>
-						<div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+						<div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
 							{category.templates.map((template) => (
 								<TemplateCard
 									key={template.id}

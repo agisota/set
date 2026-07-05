@@ -29,7 +29,6 @@ import {
 	commsThreads,
 	mailAddresses,
 	mailAttachments,
-	mailDrafts,
 	mailMessages,
 	mailThreads,
 	ROX_MAIL_DOMAIN,
@@ -38,73 +37,28 @@ import {
 	userProfiles,
 } from "@rox/db/schema";
 import { TRPCError, type TRPCRouterRecord } from "@trpc/server";
-import {
-	and,
-	asc,
-	count,
-	desc,
-	eq,
-	gt,
-	inArray,
-	type SQL,
-	sql,
-} from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { protectedProcedure } from "../../trpc";
 import { getDriveStorage } from "../drive/storage";
 import { ensureBalance } from "../economy";
 import { requireActiveOrgMembership } from "../utils/active-org";
-import { isOwnedMailAttachmentKey, mailAttachmentKey } from "./attachment-key";
 import {
-	MAIL_DRAFTS_MAX_PER_USER,
-	MAIL_PRESIGN_PUT_TTL_SECONDS,
 	MAIL_PRESIGN_TTL_SECONDS,
-	MAIL_SEARCH_DEFAULT_LIMIT,
 	MAIL_SEND_COST_ROX,
 	MAIL_SEND_RATE_MAX,
 	MAIL_SEND_RATE_WINDOW_MS,
 } from "./config";
 import {
-	deleteDraftSchema,
 	getAttachmentUrlSchema,
 	getBodyUrlSchema,
 	getMessageSchema,
 	getThreadSchema,
 	listThreadsSchema,
 	markReadSchema,
-	presignAttachmentUploadSchema,
 	provisionAddressSchema,
-	saveDraftSchema,
-	searchSchema,
 	sendSchema,
-	setFlagSchema,
-	setFolderSchema,
 } from "./schema";
-import { buildMailSearchSql, normalizeMailSearchQuery } from "./search-sql";
 import { getMailDomain, getMailSendFn } from "./transport";
-
-/**
- * The enriched per-thread summary `mail.listThreads` returns (FN-135 / #697).
- * Extends the raw `mail_threads` row with the server-derived aggregates the
- * EmailView left rail needs: a real unread count (inbound + unread), whether the
- * thread has any attachment, and the (already-on-row) folder + flag. This is the
- * shared contract the search / drafts slices and all three clients build on.
- */
-export interface MailThreadSummaryRow {
-	id: string;
-	organizationId: string;
-	ownerUserId: string;
-	rootMessageRef: string | null;
-	subjectNorm: string | null;
-	lastMessageAt: Date;
-	messageCount: number;
-	folder: (typeof mailThreads.folder)["_"]["data"];
-	isFlagged: boolean;
-	createdAt: Date;
-	/** COUNT(mail_messages WHERE is_read=false AND direction='inbound') for this thread. */
-	unreadCount: number;
-	/** True when any message in the thread carries an attachment. */
-	hasAttachments: boolean;
-}
 
 /** Confirm a thread belongs to the org AND is owned by the caller. */
 async function getOwnedThread(
@@ -318,6 +272,12 @@ async function resolveRoxRecipientUserIds(
 }
 
 export const mailRouter = {
+	getMailbox: protectedProcedure.query(async ({ ctx }) => {
+		await requireActiveOrgMembership(ctx);
+		const address = await getPrimaryAddress(ctx.session.user.id);
+		return { address };
+	}),
+
 	/**
 	 * Provision (or re-affirm) the caller's routable `<handle>@rox.one` address.
 	 * Idempotent: the global UNIQUE on `address` guards duplicates. The handle is
@@ -377,211 +337,22 @@ export const mailRouter = {
 			return row;
 		}),
 
-	/**
-	 * The caller's mailbox threads, newest-first — ENRICHED (FN-135 / #697).
-	 *
-	 * Each row carries the server-backed `folder` + `is_flagged` placement AND two
-	 * derived aggregates the EmailView rail needs: `unreadCount` (COUNT of this
-	 * thread's inbound, still-unread messages — the real unread badge, replacing
-	 * the client `openedThreadIds` heuristic) and `hasAttachments` (any message in
-	 * the thread has an attachment). Both are computed with correlated scalar
-	 * sub-selects so the thread row stays 1:1 (no GROUP BY fan-out / no row
-	 * multiplication). Optionally filtered to a single `folder`.
-	 */
+	/** The caller's mailbox threads, newest-first. */
 	listThreads: protectedProcedure
 		.input(listThreadsSchema)
-		.query(async ({ ctx, input }): Promise<MailThreadSummaryRow[]> => {
+		.query(async ({ ctx, input }) => {
 			const organizationId = await requireActiveOrgMembership(ctx);
-			const userId = ctx.session.user.id;
-
-			// Correlated scalar sub-selects keyed on the outer thread id. Each yields
-			// one value per thread, so the result stays one row per thread.
-			const unreadCount = sql<number>`(
-				SELECT COUNT(*)::int FROM ${mailMessages}
-				WHERE ${mailMessages.threadId} = ${mailThreads.id}
-					AND ${mailMessages.isRead} = false
-					AND ${mailMessages.direction} = 'inbound'
-			)`;
-			const hasAttachments = sql<boolean>`EXISTS (
-				SELECT 1 FROM ${mailMessages}
-				WHERE ${mailMessages.threadId} = ${mailThreads.id}
-					AND ${mailMessages.hasAttachments} = true
-			)`;
-
-			const where = and(
-				eq(mailThreads.organizationId, organizationId),
-				eq(mailThreads.ownerUserId, userId),
-				input?.folder ? eq(mailThreads.folder, input.folder) : undefined,
-			);
-
 			return db
-				.select({
-					id: mailThreads.id,
-					organizationId: mailThreads.organizationId,
-					ownerUserId: mailThreads.ownerUserId,
-					rootMessageRef: mailThreads.rootMessageRef,
-					subjectNorm: mailThreads.subjectNorm,
-					lastMessageAt: mailThreads.lastMessageAt,
-					messageCount: mailThreads.messageCount,
-					folder: mailThreads.folder,
-					isFlagged: mailThreads.isFlagged,
-					createdAt: mailThreads.createdAt,
-					unreadCount,
-					hasAttachments,
-				})
+				.select()
 				.from(mailThreads)
-				.where(where)
+				.where(
+					and(
+						eq(mailThreads.organizationId, organizationId),
+						eq(mailThreads.ownerUserId, ctx.session.user.id),
+					),
+				)
 				.orderBy(desc(mailThreads.lastMessageAt))
 				.limit(input?.limit ?? 50);
-		}),
-
-	/**
-	 * Move a thread into a server-backed folder (FN-135 / #697): inbox (restore),
-	 * archive, spam, or trash. Owner-scoped — only the mailbox owner may refile.
-	 * Replaces the desktop EmailView local placement store.
-	 */
-	setFolder: protectedProcedure
-		.input(setFolderSchema)
-		.mutation(async ({ ctx, input }) => {
-			const organizationId = await requireActiveOrgMembership(ctx);
-			const userId = ctx.session.user.id;
-			const rows = await db
-				.update(mailThreads)
-				.set({ folder: input.folder })
-				.where(
-					and(
-						eq(mailThreads.id, input.threadId),
-						eq(mailThreads.organizationId, organizationId),
-						eq(mailThreads.ownerUserId, userId),
-					),
-				)
-				.returning({ id: mailThreads.id, folder: mailThreads.folder });
-			if (rows.length === 0) {
-				throw new TRPCError({ code: "NOT_FOUND", message: "Thread not found" });
-			}
-			return { ok: true as const, folder: rows[0]?.folder };
-		}),
-
-	/**
-	 * Toggle (or set) the ⭐ flag on a thread (FN-135 / #697). Owner-scoped. When
-	 * `flagged` is omitted the current value is flipped in a single UPDATE (no
-	 * read-then-write race). Replaces the desktop EmailView local flag store.
-	 */
-	setFlag: protectedProcedure
-		.input(setFlagSchema)
-		.mutation(async ({ ctx, input }) => {
-			const organizationId = await requireActiveOrgMembership(ctx);
-			const userId = ctx.session.user.id;
-			const nextValue: SQL<boolean> | boolean =
-				input.flagged === undefined
-					? sql<boolean>`NOT ${mailThreads.isFlagged}`
-					: input.flagged;
-			const rows = await db
-				.update(mailThreads)
-				.set({ isFlagged: nextValue })
-				.where(
-					and(
-						eq(mailThreads.id, input.threadId),
-						eq(mailThreads.organizationId, organizationId),
-						eq(mailThreads.ownerUserId, userId),
-					),
-				)
-				.returning({
-					id: mailThreads.id,
-					isFlagged: mailThreads.isFlagged,
-				});
-			if (rows.length === 0) {
-				throw new TRPCError({ code: "NOT_FOUND", message: "Thread not found" });
-			}
-			return { ok: true as const, isFlagged: rows[0]?.isFlagged };
-		}),
-
-	/**
-	 * Server-side full-text search across the caller's mailbox (FN-138 / #698).
-	 *
-	 * Replaces the client-side subject-substring filter with a real Postgres FTS
-	 * over each message's `subject || snippet || from_addr || from_name`
-	 * (`mail_messages_fts_idx`), then rolls matches up to DISTINCT threads ranked
-	 * by best per-thread `ts_rank`. Owner + org scoped. Returns the SAME enriched
-	 * {@link MailThreadSummaryRow} shape as `listThreads` so the UI renders search
-	 * hits with the identical thread-row component.
-	 */
-	search: protectedProcedure
-		.input(searchSchema)
-		.query(async ({ ctx, input }): Promise<MailThreadSummaryRow[]> => {
-			const organizationId = await requireActiveOrgMembership(ctx);
-			const userId = ctx.session.user.id;
-
-			const normalized = normalizeMailSearchQuery(input.query);
-			if (!normalized) return [];
-			const { match, rank } = buildMailSearchSql(normalized);
-
-			// Thread ids whose messages match, ranked by the best match in the thread.
-			const matched = await db
-				.select({
-					threadId: mailMessages.threadId,
-					score: sql<number>`MAX(${rank})`,
-				})
-				.from(mailMessages)
-				.where(
-					and(
-						eq(mailMessages.organizationId, organizationId),
-						eq(mailMessages.ownerUserId, userId),
-						match,
-					),
-				)
-				.groupBy(mailMessages.threadId)
-				.orderBy(desc(sql`MAX(${rank})`))
-				.limit(input.limit ?? MAIL_SEARCH_DEFAULT_LIMIT);
-
-			const threadIds = matched
-				.map((m) => m.threadId)
-				.filter((id): id is string => id !== null);
-			if (threadIds.length === 0) return [];
-
-			const unreadCount = sql<number>`(
-				SELECT COUNT(*)::int FROM ${mailMessages}
-				WHERE ${mailMessages.threadId} = ${mailThreads.id}
-					AND ${mailMessages.isRead} = false
-					AND ${mailMessages.direction} = 'inbound'
-			)`;
-			const hasAttachments = sql<boolean>`EXISTS (
-				SELECT 1 FROM ${mailMessages}
-				WHERE ${mailMessages.threadId} = ${mailThreads.id}
-					AND ${mailMessages.hasAttachments} = true
-			)`;
-
-			const rows = await db
-				.select({
-					id: mailThreads.id,
-					organizationId: mailThreads.organizationId,
-					ownerUserId: mailThreads.ownerUserId,
-					rootMessageRef: mailThreads.rootMessageRef,
-					subjectNorm: mailThreads.subjectNorm,
-					lastMessageAt: mailThreads.lastMessageAt,
-					messageCount: mailThreads.messageCount,
-					folder: mailThreads.folder,
-					isFlagged: mailThreads.isFlagged,
-					createdAt: mailThreads.createdAt,
-					unreadCount,
-					hasAttachments,
-				})
-				.from(mailThreads)
-				.where(
-					and(
-						eq(mailThreads.organizationId, organizationId),
-						eq(mailThreads.ownerUserId, userId),
-						inArray(mailThreads.id, threadIds),
-					),
-				);
-
-			// Re-order the thread rows to match the FTS rank order from `matched`.
-			const order = new Map(threadIds.map((id, i) => [id, i]));
-			return rows.sort(
-				(a, b) =>
-					(order.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
-					(order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
-			);
 		}),
 
 	/** A thread plus its messages (chronological). Owner-scoped. */
@@ -753,45 +524,6 @@ export const mailRouter = {
 				}
 			}
 
-			// FN-141 (#701): resolve outbound attachments. Each was pre-uploaded by the
-			// client to R2 via `presignAttachmentUpload`; here we (1) re-validate the
-			// key sits under the caller's OWN `mail/outbound/<userId>/` prefix — a
-			// client may never send a key pointing at another user's object — and (2)
-			// mint a short-TTL presigned GET so Resend fetches the bytes by URL (never
-			// inlined, per DQ1). Requires storage to be configured when attachments
-			// are present.
-			const inputAttachments = input.attachments ?? [];
-			const resolvedAttachments: {
-				filename: string;
-				contentType: string;
-				sizeBytes: number;
-				blobKey: string;
-				path: string;
-			}[] = [];
-			if (inputAttachments.length > 0) {
-				const storage = requireStorage();
-				for (const att of inputAttachments) {
-					if (!isOwnedMailAttachmentKey(userId, att.key)) {
-						throw new TRPCError({
-							code: "FORBIDDEN",
-							message: "Attachment key is not owned by the caller.",
-						});
-					}
-					const presigned = await storage.presignGet({
-						key: att.key,
-						downloadFilename: att.filename,
-						expiresIn: MAIL_PRESIGN_TTL_SECONDS,
-					});
-					resolvedAttachments.push({
-						filename: att.filename,
-						contentType: att.contentType,
-						sizeBytes: att.sizeBytes,
-						blobKey: att.key,
-						path: presigned.url,
-					});
-				}
-			}
-
 			const adapter = new EmailAdapter({
 				send: sendFn,
 				domain: getMailDomain(),
@@ -813,12 +545,6 @@ export const mailRouter = {
 						references: derivedReferences,
 						cc: input.cc ?? [],
 						bcc: input.bcc ?? [],
-						// FN-141: deliver attachments to Resend by presigned R2 URL.
-						attachments: resolvedAttachments.map((a) => ({
-							filename: a.filename,
-							path: a.path,
-							contentType: a.contentType,
-						})),
 					},
 				},
 				{
@@ -853,29 +579,12 @@ export const mailRouter = {
 						bccAddrs: input.bcc ?? [],
 						subject: input.subject ?? null,
 						snippet: input.body.slice(0, 200),
-						hasAttachments: resolvedAttachments.length > 0,
+						hasAttachments: false,
 						provider: "resend",
 						providerEventId: result.providerId,
 						sentAt: new Date(),
 					})
 					.returning();
-
-				// FN-141 (#701): persist one mail_attachments row per outbound file so
-				// the sent message carries its attachment metadata (content already in
-				// R2 at `blobKey`). Owner scope is inherited via the parent message.
-				if (resolvedAttachments.length > 0 && inserted?.id) {
-					await tx.insert(mailAttachments).values(
-						resolvedAttachments.map((a) => ({
-							messageId: inserted.id,
-							organizationId,
-							filename: a.filename,
-							contentType: a.contentType,
-							sizeBytes: a.sizeBytes,
-							isInline: false,
-							blobKey: a.blobKey,
-						})),
-					);
-				}
 
 				// Debit the WS-E ledger + balance for this send (M3).
 				await tx.insert(roxLedger).values({
@@ -1052,132 +761,5 @@ export const mailRouter = {
 				expiresIn: MAIL_PRESIGN_TTL_SECONDS,
 			});
 			return { url: presigned.url, expiresAt: presigned.expiresAt };
-		}),
-
-	/**
-	 * Mint a short-TTL presigned R2 PUT for one OUTBOUND attachment (FN-141 /
-	 * #701). The key is SERVER-DERIVED from the caller's immutable user id + the
-	 * client-supplied content hash (`mail/outbound/<userId>/<sha256>`), so a
-	 * client can only ever upload into its own prefix — `mail.send` re-validates
-	 * that prefix before trusting any key. The client uploads the bytes directly
-	 * to R2, then passes `{ key, filename, contentType, sizeBytes }` back on send.
-	 * Inert without R2 creds → `PRECONDITION_FAILED`.
-	 */
-	presignAttachmentUpload: protectedProcedure
-		.input(presignAttachmentUploadSchema)
-		.mutation(async ({ ctx, input }) => {
-			await requireActiveOrgMembership(ctx);
-			const userId = ctx.session.user.id;
-			const storage = requireStorage();
-
-			const key = mailAttachmentKey(userId, input.sha256);
-			const presigned = await storage.presignPut({
-				key,
-				contentType: input.contentType,
-				contentLength: input.sizeBytes,
-				expiresIn: MAIL_PRESIGN_PUT_TTL_SECONDS,
-			});
-			return {
-				key,
-				url: presigned.url,
-				expiresAt: presigned.expiresAt,
-			};
-		}),
-
-	/**
-	 * The caller's server-backed compose drafts, newest-edited-first (FN-139 /
-	 * #699). Replaces the desktop EmailView localStorage draft list so a draft
-	 * survives reload and is cross-device. Owner + org scoped.
-	 */
-	listDrafts: protectedProcedure.query(async ({ ctx }) => {
-		const organizationId = await requireActiveOrgMembership(ctx);
-		const userId = ctx.session.user.id;
-		return db
-			.select()
-			.from(mailDrafts)
-			.where(
-				and(
-					eq(mailDrafts.organizationId, organizationId),
-					eq(mailDrafts.ownerUserId, userId),
-				),
-			)
-			.orderBy(desc(mailDrafts.updatedAt))
-			.limit(MAIL_DRAFTS_MAX_PER_USER);
-	}),
-
-	/**
-	 * Insert-or-update a compose draft (FN-139 / #699) — the composer autosave
-	 * seam. Omitting `id` creates a new draft; passing an owned `id` updates it in
-	 * place (and bumps `updated_at`). An update to a draft the caller does not own
-	 * 404s rather than silently creating a stray row. Owner + org scoped.
-	 */
-	saveDraft: protectedProcedure
-		.input(saveDraftSchema)
-		.mutation(async ({ ctx, input }) => {
-			const organizationId = await requireActiveOrgMembership(ctx);
-			const userId = ctx.session.user.id;
-
-			const fields = {
-				threadId: input.threadId ?? null,
-				toAddrs: input.to ?? "",
-				ccAddrs: input.cc ?? "",
-				bccAddrs: input.bcc ?? "",
-				subject: input.subject ?? "",
-				body: input.body ?? "",
-				attachments: input.attachments ?? [],
-			};
-
-			if (input.id) {
-				const [updated] = await db
-					.update(mailDrafts)
-					.set({ ...fields, updatedAt: new Date() })
-					.where(
-						and(
-							eq(mailDrafts.id, input.id),
-							eq(mailDrafts.organizationId, organizationId),
-							eq(mailDrafts.ownerUserId, userId),
-						),
-					)
-					.returning();
-				if (!updated) {
-					throw new TRPCError({
-						code: "NOT_FOUND",
-						message: "Draft not found",
-					});
-				}
-				return updated;
-			}
-
-			const [created] = await db
-				.insert(mailDrafts)
-				.values({
-					organizationId,
-					ownerUserId: userId,
-					...fields,
-				})
-				.returning();
-			return created;
-		}),
-
-	/** Delete a server-backed draft the caller owns (FN-139 / #699). */
-	deleteDraft: protectedProcedure
-		.input(deleteDraftSchema)
-		.mutation(async ({ ctx, input }) => {
-			const organizationId = await requireActiveOrgMembership(ctx);
-			const userId = ctx.session.user.id;
-			const rows = await db
-				.delete(mailDrafts)
-				.where(
-					and(
-						eq(mailDrafts.id, input.id),
-						eq(mailDrafts.organizationId, organizationId),
-						eq(mailDrafts.ownerUserId, userId),
-					),
-				)
-				.returning({ id: mailDrafts.id });
-			if (rows.length === 0) {
-				throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found" });
-			}
-			return { ok: true as const };
 		}),
 } satisfies TRPCRouterRecord;

@@ -96,7 +96,7 @@ export function PipelinesIndex() {
 	};
 
 	return (
-		<div className="w-full px-4 py-6">
+		<div className="flex h-full w-full flex-col overflow-y-auto bg-background/85 px-6 py-6">
 			<div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 				<div className="min-w-0">
 					<h1 className="flex min-w-0 items-center gap-2 text-xl font-medium">
@@ -197,7 +197,7 @@ export function PipelinesIndex() {
 				/>
 			)}
 
-			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+			<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
 				{pipelines.map((pipeline) => (
 					<button
 						key={pipeline.id}

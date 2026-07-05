@@ -6,6 +6,8 @@ import {
 	type ExperimentalFeatureId,
 	type ExperimentalFeatureMaturity,
 	type ExperimentalFeatureState,
+	formatExperimentalFeatureSurfaceLabel,
+	getExperimentalFeatureDisplayCopy,
 } from "@rox/shared/experimental-features";
 import { Badge } from "@rox/ui/badge";
 import { Button } from "@rox/ui/button";
@@ -21,10 +23,10 @@ import { TemplateGalleryModal } from "renderer/routes/_authenticated/components/
 import { getLaunchpadAction } from "./launchpad-action";
 
 const AVAILABILITY_LABEL: Record<ExperimentalFeatureAvailability, string> = {
-	available: "Available",
-	blocked: "Blocked",
-	needs_configuration: "Needs config",
-	not_implemented: "Stubbed",
+	available: "Доступно",
+	blocked: "Заблокировано",
+	needs_configuration: "Требуется настройка",
+	not_implemented: "Ещё не подключено",
 };
 
 const AVAILABILITY_CLASS: Record<ExperimentalFeatureAvailability, string> = {
@@ -35,43 +37,43 @@ const AVAILABILITY_CLASS: Record<ExperimentalFeatureAvailability, string> = {
 };
 
 const MATURITY_LABEL: Record<ExperimentalFeatureMaturity, string> = {
-	alpha: "Alpha",
-	beta: "Beta",
-	preview: "Preview",
+	alpha: "Альфа",
+	beta: "Бета",
+	preview: "Предпросмотр",
 };
 
 const LAUNCHPAD_ITEMS = [
 	{
 		featureId: "agentNative.sourceMarketplace",
-		title: "Agent Sources",
-		description: "Attach Agent-Native sources to composer and agent runs.",
+		title: "Источники агентов",
+		description: "Подключить Agent-Native источники к composer и запускам.",
 	},
 	{
 		featureId: "templates.marketplace",
-		title: "Template Gallery",
-		description: "Browse and apply Agent-Native templates.",
+		title: "Галерея шаблонов",
+		description: "Просматривать и применять Agent-Native шаблоны.",
 	},
 	{
 		featureId: "collaboration.presence",
-		title: "Collaboration Rooms",
-		description: "Open shared Liveblocks-ready work rooms.",
+		title: "Комнаты совместной работы",
+		description: "Открывать общие рабочие комнаты с Liveblocks-ready presence.",
 	},
 	{
 		featureId: "live.voiceRooms",
-		title: "Live Operations",
-		description: "Start LiveKit-backed voice and agent rooms.",
+		title: "Live-операции",
+		description: "Запускать голосовые и агентные комнаты на LiveKit.",
 	},
 	{
 		featureId: "projectOs.workspaceShell",
 		title: "Project OS",
 		description:
-			"Navigate object-linked tasks, chats, calls, and roadmap data.",
+			"Навигация по связанным задачам, чатам, звонкам и roadmap-данным.",
 	},
 	{
 		featureId: "rooms.operationsCommandCenter",
-		title: "Combined Workflows",
+		title: "Объединённые процессы",
 		description:
-			"Run cross-provider operating rooms with agents and live context.",
+			"Запуск межпровайдерных операционных комнат с агентами и live-контекстом.",
 	},
 ] as const satisfies readonly {
 	description: string;
@@ -86,7 +88,7 @@ function getDefaultState(id: ExperimentalFeatureId): ExperimentalFeatureState {
 		defaultEnabled: true,
 		userOverride: null,
 		availability: "not_implemented",
-		reason: "Loading effective state.",
+		reason: "Загружаем текущее состояние.",
 		dependencies: [],
 	};
 }
@@ -97,6 +99,46 @@ function normalizeSearch(value: string) {
 
 function featureCardId(id: ExperimentalFeatureId): string {
 	return `experimental-feature-card-${id.replaceAll(".", "-")}`;
+}
+
+function formatAvailabilityReason(
+	state: ExperimentalFeatureState,
+	fallback?: string,
+) {
+	if (state.availability === "needs_configuration") {
+		const missingDependencies = state.missingDependencies?.length
+			? state.missingDependencies
+			: state.dependencies.filter(
+					(dependency) => dependency.kind === "provider" && dependency.required,
+				);
+		if (missingDependencies.length > 0) {
+			const dependencyNames = missingDependencies
+				.map((dependency) => dependency.label)
+				.join(", ");
+			const setupHints = missingDependencies
+				.map((dependency) => dependency.configurationHint)
+				.filter((hint): hint is string => Boolean(hint?.trim()));
+			return [
+				`Требуется настройка: ${dependencyNames}.`,
+				...setupHints,
+				"Откройте настройки соответствующего провайдера или интеграции и добавьте недостающую конфигурацию. Значения секретов здесь не показываются.",
+			].join(" ");
+		}
+		return (
+			fallback ??
+			"Требуется настройка провайдера или среды выполнения. Проверьте соответствующий раздел настроек; значения секретов здесь не показываются."
+		);
+	}
+	if (state.availability === "blocked") {
+		return "Функция отключена глобальным переключателем безопасности.";
+	}
+	if (state.availability === "not_implemented") {
+		return "Панель управления уже видна, но продуктовая поверхность ещё подключается.";
+	}
+	if (!state.enabled) {
+		return "Отключено в настройках экспериментов.";
+	}
+	return fallback;
 }
 
 export function ExperimentalFeatureCatalog() {
@@ -120,7 +162,7 @@ export function ExperimentalFeatureCatalog() {
 				toast.error(
 					error instanceof Error
 						? error.message
-						: "Failed to update experimental feature",
+						: "Не удалось обновить экспериментальную функцию",
 				);
 			},
 		});
@@ -128,13 +170,15 @@ export function ExperimentalFeatureCatalog() {
 		electronTrpc.settings.experimentalFeatures.resetAll.useMutation({
 			onSuccess: async () => {
 				await utils.settings.experimentalFeatures.list.invalidate();
-				toast.success("Experimental features reset to defaults");
+				toast.success(
+					"Экспериментальные функции сброшены к значениям по умолчанию",
+				);
 			},
 			onError: (error) => {
 				toast.error(
 					error instanceof Error
 						? error.message
-						: "Failed to reset experimental features",
+						: "Не удалось сбросить экспериментальные функции",
 				);
 			},
 		});
@@ -154,13 +198,14 @@ export function ExperimentalFeatureCatalog() {
 	const visibleFeatures = useMemo(() => {
 		if (!normalizedSearch) return EXPERIMENTAL_FEATURES;
 		return EXPERIMENTAL_FEATURES.filter((feature) => {
+			const displayCopy = getExperimentalFeatureDisplayCopy(feature);
 			const haystack = [
 				feature.id,
-				feature.title,
-				feature.shortDescription,
-				feature.longDescription,
+				displayCopy.title,
+				displayCopy.shortDescription,
+				displayCopy.longDescription,
 				feature.category,
-				...feature.affectedSurfaces,
+				...feature.affectedSurfaces.map(formatExperimentalFeatureSurfaceLabel),
 				...feature.dependencies.map((dependency) => dependency.label),
 			]
 				.join(" ")
@@ -191,17 +236,17 @@ export function ExperimentalFeatureCatalog() {
 			<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div className="space-y-1">
 					<Label className="text-sm font-medium">
-						Agent-Native Team OS controls
+						Управление экспериментальными функциями
 					</Label>
 					<p className="text-xs text-muted-foreground">
-						All planned capabilities are enabled by default. Disable a feature
-						here to hide its entry points or keep it inactive while provider
-						configuration is missing.
+						Здесь видны экспериментальные возможности и их готовность. Если
+						функция требует настройку, Rox показывает безопасную диагностику без
+						значений секретов.
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
 					<Badge variant="outline">
-						{fallbackEnabled}/{EXPERIMENTAL_FEATURES.length} on
+						{fallbackEnabled}/{EXPERIMENTAL_FEATURES.length} включено
 					</Badge>
 					<Button
 						type="button"
@@ -211,7 +256,7 @@ export function ExperimentalFeatureCatalog() {
 						disabled={resetAll.isPending || setOverride.isPending}
 					>
 						<HiOutlineArrowPath className="size-4" aria-hidden />
-						Reset all
+						Сбросить всё
 					</Button>
 				</div>
 			</div>
@@ -224,17 +269,17 @@ export function ExperimentalFeatureCatalog() {
 				<Input
 					value={searchQuery}
 					onChange={(event) => setSearchQuery(event.target.value)}
-					placeholder="Search experiments, providers, surfaces..."
+					placeholder="Поиск по экспериментам, провайдерам, поверхностям..."
 					className="pl-9"
 				/>
 			</div>
 
 			<div className="space-y-3 rounded-md border p-4">
 				<div className="space-y-1">
-					<h3 className="text-sm font-semibold">Gated entry points</h3>
+					<h3 className="text-sm font-semibold">Точки входа</h3>
 					<p className="text-xs text-muted-foreground">
-						These launch surfaces read the same toggles. Disabled features stay
-						hidden or inactive outside this control plane.
+						Эти точки входа читают те же переключатели. Отключённые функции
+						остаются скрытыми или неактивными вне этой панели.
 					</p>
 				</div>
 				<div className="grid gap-3 md:grid-cols-2">
@@ -244,14 +289,15 @@ export function ExperimentalFeatureCatalog() {
 						const isDisabled =
 							!state.enabled || state.availability !== "available";
 						const actionLabel = !state.enabled
-							? "Disabled"
+							? "Отключено"
 							: state.availability === "needs_configuration"
-								? "Configure"
+								? "Настроить"
 								: state.availability === "blocked"
-									? "Blocked"
+									? "Заблокировано"
 									: state.availability === "not_implemented"
-										? "Coming soon"
-										: "Open";
+										? "Скоро"
+										: "Открыть";
+						const reason = formatAvailabilityReason(state, state.reason);
 
 						return (
 							<div
@@ -271,10 +317,8 @@ export function ExperimentalFeatureCatalog() {
 									<p className="text-xs text-muted-foreground">
 										{item.description}
 									</p>
-									{state.reason && (
-										<p className="text-xs text-muted-foreground">
-											{state.reason}
-										</p>
+									{reason && (
+										<p className="text-xs text-muted-foreground">{reason}</p>
 									)}
 								</div>
 								<Button
@@ -310,8 +354,11 @@ export function ExperimentalFeatureCatalog() {
 							</div>
 							<div className="divide-y rounded-md border">
 								{categoryFeatures.map((feature) => {
+									const displayCopy =
+										getExperimentalFeatureDisplayCopy(feature);
 									const state =
 										statesById.get(feature.id) ?? getDefaultState(feature.id);
+									const reason = formatAvailabilityReason(state, state.reason);
 									const switchId = `experimental-feature-${feature.id.replaceAll(
 										".",
 										"-",
@@ -331,7 +378,7 @@ export function ExperimentalFeatureCatalog() {
 															htmlFor={switchId}
 															className="text-sm font-medium"
 														>
-															{feature.title}
+															{displayCopy.title}
 														</Label>
 														<Badge variant="outline">
 															{MATURITY_LABEL[feature.maturity]}
@@ -343,42 +390,42 @@ export function ExperimentalFeatureCatalog() {
 															{AVAILABILITY_LABEL[state.availability]}
 														</Badge>
 														{state.userOverride !== null && (
-															<Badge variant="secondary">Custom</Badge>
+															<Badge variant="secondary">Изменено</Badge>
 														)}
 													</div>
 													<p className="text-xs text-muted-foreground">
-														{feature.shortDescription}
+														{displayCopy.shortDescription}
 													</p>
 												</div>
 
 												<div className="flex flex-wrap gap-1.5">
 													{feature.affectedSurfaces.map((surface) => (
 														<Badge key={surface} variant="outline">
-															{surface}
+															{formatExperimentalFeatureSurfaceLabel(surface)}
 														</Badge>
 													))}
 												</div>
 
 												{feature.dependencies.length > 0 && (
 													<p className="text-xs text-muted-foreground">
-														Dependencies:{" "}
+														Зависимости:{" "}
 														{feature.dependencies
 															.map((dependency) => dependency.label)
 															.join(", ")}
 													</p>
 												)}
 
-												{state.reason && (
+												{reason && (
 													<p className="text-xs text-muted-foreground">
-														{state.reason}
+														{reason}
 													</p>
 												)}
 
 												<details className="text-xs text-muted-foreground">
 													<summary className="cursor-pointer text-foreground">
-														Learn more
+														Подробнее
 													</summary>
-													<p className="mt-1">{feature.longDescription}</p>
+													<p className="mt-1">{displayCopy.longDescription}</p>
 												</details>
 											</div>
 
@@ -393,7 +440,7 @@ export function ExperimentalFeatureCatalog() {
 													setOverride.isPending ||
 													resetAll.isPending
 												}
-												aria-label={`Toggle ${feature.title}`}
+												aria-label={`Переключить ${displayCopy.title}`}
 												className="justify-self-start md:justify-self-end"
 											/>
 										</div>

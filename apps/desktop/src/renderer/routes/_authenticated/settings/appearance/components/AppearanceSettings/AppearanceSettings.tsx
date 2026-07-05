@@ -45,6 +45,10 @@ export function AppearanceSettings({ visibleItems }: AppearanceSettingsProps) {
 		SETTING_ITEM_ID.APPEARANCE_EDITOR_FONT,
 		visibleItems,
 	);
+	const showUiFont = isItemVisible(
+		SETTING_ITEM_ID.APPEARANCE_UI_FONT,
+		visibleItems,
+	);
 	const showTerminalFont = isItemVisible(
 		SETTING_ITEM_ID.APPEARANCE_TERMINAL_FONT,
 		visibleItems,
@@ -87,6 +91,7 @@ export function AppearanceSettings({ visibleItems }: AppearanceSettingsProps) {
 				{showLoadingScreen && <LoadingScreenSection key="loading-screen" />}
 				{showMarkdown && <MarkdownStyleSection key="markdown" />}
 				{showAnimations && <AnimationSection key="animations" />}
+				{showUiFont && <FontSettingSection key="ui-font" variant="ui" />}
 				{showEditorFont && (
 					<FontSettingSection key="editor-font" variant="editor" />
 				)}

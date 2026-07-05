@@ -10,7 +10,10 @@ import type { RouterOutputs } from "@rox/trpc";
  */
 
 /** One row of the mailbox thread list (`mail.listThreads`). */
-export type MailThreadSummary = RouterOutputs["mail"]["listThreads"][number];
+export type MailThreadSummary = RouterOutputs["mail"]["listThreads"][number] & {
+	unreadCount: number;
+	hasAttachments: boolean;
+};
 
 /** The thread row returned by `mail.getThread`. */
 export type MailThread = RouterOutputs["mail"]["getThread"]["thread"];
