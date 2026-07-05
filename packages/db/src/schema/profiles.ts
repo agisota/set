@@ -51,6 +51,8 @@ export const userProfiles = pgTable(
 		location: text("location"),
 		websiteUrl: text("website_url"),
 		contactEmail: text("contact_email"),
+		birthDate: date("birth_date"),
+		gender: text("gender"),
 		telegram: text("telegram"),
 		max: text("max"),
 		wechat: text("wechat"),

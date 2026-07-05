@@ -6,9 +6,7 @@ import { Button } from "@rox/ui/button";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { FaGithub } from "react-icons/fa";
 import { env } from "@/env";
-import { TelegramLoginButton } from "../../components/TelegramLoginButton";
 
 export default function SignInPage() {
 	const searchParams = useSearchParams();
@@ -22,32 +20,13 @@ export default function SignInPage() {
 			? `${env.NEXT_PUBLIC_WEB_URL}${redirect}`
 			: env.NEXT_PUBLIC_WEB_URL;
 
-	// ROX-522 Phase 3: registration/login is social-only. The public
-	// email/password form was removed; only the dev-gated "Local Admin (dev)"
-	// shortcut below still uses email/password (against the dev-only backend
-	// `emailAndPassword.enabled` flag).
+	// Public login is Yandex-only for now. Email/password remains available for
+	// verified accounts and for the dev-gated Local Admin shortcut below.
 	const isDev = process.env.NODE_ENV === "development";
 
-	const [isLoadingGithub, setIsLoadingGithub] = useState(false);
 	const [isLoadingYandex, setIsLoadingYandex] = useState(false);
 	const [isLoadingDev, setIsLoadingDev] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-
-	const signInWithGithub = async () => {
-		setIsLoadingGithub(true);
-		setError(null);
-
-		try {
-			await authClient.signIn.social({
-				provider: "github",
-				callbackURL,
-			});
-		} catch (err) {
-			console.error("Sign in failed:", err);
-			setError("Не удалось войти. Попробуйте еще раз.");
-			setIsLoadingGithub(false);
-		}
-	};
 
 	const signInWithYandex = async () => {
 		setIsLoadingYandex(true);
@@ -97,7 +76,7 @@ export default function SignInPage() {
 		}
 	};
 
-	const isLoading = isLoadingGithub || isLoadingYandex || isLoadingDev;
+	const isLoading = isLoadingYandex || isLoadingDev;
 
 	return (
 		<div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
@@ -125,18 +104,6 @@ export default function SignInPage() {
 							: "Войти как локальный администратор (dev)"}
 					</Button>
 				)}
-				{/* TODO(ROX-522): GitHub stays as a full social login for now.
-				    Demoting GitHub to a link-only ("connect account") option is a
-				    separate follow-up and is intentionally not implemented here. */}
-				<Button
-					variant="outline"
-					disabled={isLoading}
-					onClick={signInWithGithub}
-					className="w-full"
-				>
-					<FaGithub className="mr-2 size-4" />
-					{isLoadingGithub ? "Загрузка..." : "Войти через GitHub"}
-				</Button>
 				<Button
 					variant="outline"
 					disabled={isLoading}
@@ -151,7 +118,6 @@ export default function SignInPage() {
 					</span>
 					{isLoadingYandex ? "Загрузка..." : "Войти через Яндекс"}
 				</Button>
-				<TelegramLoginButton callbackURL={callbackURL} />
 				<p className="text-muted-foreground px-8 text-center text-sm">
 					Нажимая «Продолжить», вы соглашаетесь с нашими{" "}
 					<a

@@ -7,6 +7,7 @@ import type { sessions } from "@rox/db/schema/auth";
 import * as authSchema from "@rox/db/schema/auth";
 import { seedDefaultStatuses } from "@rox/db/seed-default-statuses";
 import { seedDemoProject } from "@rox/db/seed-demo-project";
+import { EmailVerificationEmail } from "@rox/email/emails/email-verification";
 import { MemberAddedEmail } from "@rox/email/emails/member-added";
 import { MemberRemovedEmail } from "@rox/email/emails/member-removed";
 import { OrganizationInvitationEmail } from "@rox/email/emails/organization-invitation";
@@ -186,16 +187,30 @@ export const auth = betterAuth({
 		},
 	},
 	emailAndPassword: {
-		// NOTE (ROX-519 / ROX-522 Phase 3): kept dev-gated on purpose.
-		// Production is social-only (Telegram / Yandex / GitHub); the public
-		// email/password sign-in & sign-up forms were removed from the web app.
-		// This flag stays enabled in development only because dev login and the
-		// dev seed flow ("Local Admin (dev)") rely on it. Flipping this to
-		// always-on (enabling email/password sign-in in production) is a pending
-		// product/security decision and must NOT be flipped here without that
-		// sign-off — production needs email verification + rate limiting first.
-		enabled: process.env.NODE_ENV === "development",
-		autoSignIn: true,
+		enabled: true,
+		autoSignIn: false,
+		requireEmailVerification: true,
+	},
+	emailVerification: {
+		sendOnSignUp: true,
+		sendOnSignIn: true,
+		expiresIn: 60 * 60,
+		sendVerificationEmail: async ({ user, url }) => {
+			if (process.env.NODE_ENV === "development") {
+				console.info(`[auth] verification email for ${user.email}: ${url}`);
+				return;
+			}
+
+			await resend.emails.send({
+				from: "Rox <noreply@rox.one>",
+				to: user.email,
+				subject: "Подтвердите почту для Rox",
+				react: EmailVerificationEmail({
+					userName: user.name,
+					verificationUrl: url,
+				}),
+			});
+		},
 	},
 	socialProviders: {
 		github: {

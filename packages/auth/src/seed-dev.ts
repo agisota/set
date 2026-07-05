@@ -29,7 +29,7 @@ async function seedDevAccount(): Promise<void> {
 
 	await db
 		.update(users)
-		.set({ onboardedAt: new Date() })
+		.set({ emailVerified: true, onboardedAt: new Date() })
 		.where(eq(users.id, user.id));
 
 	const membership = await db.query.members.findFirst({
