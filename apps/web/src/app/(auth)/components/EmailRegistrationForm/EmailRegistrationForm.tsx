@@ -226,6 +226,12 @@ export function EmailRegistrationForm() {
 			return;
 		}
 
+		if (!form.birthDate) {
+			setSubmissionState("error");
+			setMessage("Укажите дату рождения.");
+			return;
+		}
+
 		if (form.password !== form.confirmPassword) {
 			setSubmissionState("error");
 			setMessage("Пароли не совпадают.");

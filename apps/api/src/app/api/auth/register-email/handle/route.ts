@@ -4,24 +4,10 @@ import { validateHandle } from "@rox/shared/username";
 import { eq } from "drizzle-orm";
 
 import { apiError } from "@/lib/api-response";
+import { getHandleErrorMessage } from "../handle-error";
 import { checkHandleRateLimit } from "../rate-limit";
 
 export const dynamic = "force-dynamic";
-
-function getHandleErrorMessage(error: string | undefined): string {
-	switch (error) {
-		case "too_short":
-			return "Никнейм должен быть не короче 4 символов.";
-		case "too_long":
-			return "Никнейм должен быть не длиннее 16 символов.";
-		case "invalid_chars":
-			return "Никнейм может содержать только латиницу, цифры и подчеркивание.";
-		case "reserved":
-			return "Этот никнейм нельзя использовать.";
-		default:
-			return "Некорректный никнейм.";
-	}
-}
 
 export async function GET(request: Request): Promise<Response> {
 	const url = new URL(request.url);
@@ -36,7 +22,7 @@ export async function GET(request: Request): Promise<Response> {
 		});
 	}
 
-	const canCheckHandle = await checkHandleRateLimit(request, handle.normalized);
+	const canCheckHandle = await checkHandleRateLimit(request);
 	if (!canCheckHandle) {
 		return apiError("Слишком много проверок никнейма. Попробуйте позже.", 429, {
 			ok: false,

@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { env } from "@/env";
 import { apiError } from "@/lib/api-response";
+import { getHandleErrorMessage } from "./handle-error";
 import { checkRegisterEmailRateLimit } from "./rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -50,21 +51,6 @@ function checkBirthDate(value: string): boolean {
 	return date >= minDate && date <= maxDate;
 }
 
-function getHandleErrorMessage(error: string | undefined): string {
-	switch (error) {
-		case "too_short":
-			return "Никнейм должен быть не короче 4 символов.";
-		case "too_long":
-			return "Никнейм должен быть не длиннее 16 символов.";
-		case "invalid_chars":
-			return "Никнейм может содержать только латиницу, цифры и подчеркивание.";
-		case "reserved":
-			return "Этот никнейм нельзя использовать.";
-		default:
-			return "Некорректный никнейм.";
-	}
-}
-
 function isUniqueViolation(error: unknown): boolean {
 	return (
 		typeof error === "object" &&
@@ -80,6 +66,22 @@ function checkEmailResponse(): Response {
 		status: "check_email",
 		message: "Мы отправили письмо с подтверждением на указанную почту.",
 	});
+}
+
+async function cleanupRegistrationUser(userId: string): Promise<void> {
+	const personalOrgSlug = `${userId.slice(0, 8)}-team`;
+	const personalOrg = await db.query.organizations.findFirst({
+		where: eq(authSchema.organizations.slug, personalOrgSlug),
+		columns: { id: true },
+	});
+
+	if (personalOrg) {
+		await db
+			.delete(authSchema.organizations)
+			.where(eq(authSchema.organizations.id, personalOrg.id));
+	}
+
+	await db.delete(authSchema.users).where(eq(authSchema.users.id, userId));
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -123,38 +125,33 @@ export async function POST(request: Request): Promise<Response> {
 		});
 	}
 
+	const existingUser = await db.query.users.findFirst({
+		where: eq(authSchema.users.email, parsed.data.email),
+		columns: { id: true, emailVerified: true },
+	});
+
 	const existingHandle = await db.query.userProfiles.findFirst({
 		where: eq(userProfiles.handle, handle.normalized),
 		columns: { userId: true },
 	});
-	if (existingHandle) {
+	if (
+		existingHandle &&
+		(!existingUser ||
+			existingUser.emailVerified ||
+			existingHandle.userId !== existingUser.id)
+	) {
 		return apiError("Этот никнейм уже занят.", 409, {
 			ok: false,
 			status: "error",
 		});
 	}
 
-	const existingUser = await db.query.users.findFirst({
-		where: eq(authSchema.users.email, parsed.data.email),
-		columns: { email: true, emailVerified: true },
-	});
 	if (existingUser) {
 		if (!existingUser.emailVerified) {
-			await auth.api
-				.sendVerificationEmail({
-					body: {
-						email: parsed.data.email,
-						callbackURL: `${env.NEXT_PUBLIC_WEB_URL}/sign-in?verified=1`,
-					},
-				})
-				.catch((error) => {
-					console.error(
-						"[register-email] failed to resend verification email",
-						error,
-					);
-				});
+			await cleanupRegistrationUser(existingUser.id);
+		} else {
+			return checkEmailResponse();
 		}
-		return checkEmailResponse();
 	}
 
 	const signup = await auth.api.signUpEmail({
@@ -185,9 +182,7 @@ export async function POST(request: Request): Promise<Response> {
 			gender: parsed.data.gender,
 		});
 	} catch (error) {
-		await db
-			.delete(authSchema.users)
-			.where(eq(authSchema.users.id, signup.user.id));
+		await cleanupRegistrationUser(signup.user.id);
 
 		if (isUniqueViolation(error)) {
 			return apiError("Этот никнейм уже занят.", 409, {

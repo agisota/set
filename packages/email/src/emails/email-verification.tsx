@@ -3,7 +3,7 @@ import { Button, StandardLayout } from "../components";
 
 interface EmailVerificationEmailProps {
 	userName?: string | null;
-	verificationUrl: string;
+	verificationUrl?: string;
 }
 
 export function EmailVerificationEmail({

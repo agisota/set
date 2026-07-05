@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { env } from "@/env";
@@ -28,32 +29,34 @@ function getClientIp(request: Request): string {
 	);
 }
 
+function hashRateLimitPart(value: string): string {
+	return createHash("sha256").update(value).digest("hex").slice(0, 24);
+}
+
 export async function checkRegisterEmailRateLimit(
 	request: Request,
 	email?: string,
 ): Promise<boolean> {
-	const key = `${getClientIp(request)}:${email ?? "unknown"}`;
+	const emailKey = email ? hashRateLimitPart(email) : "unknown";
+	const key = `${getClientIp(request)}:${emailKey}`;
 
 	try {
 		const result = await registrationRateLimit.limit(key);
 		return result.success;
 	} catch (error) {
 		console.error("[register-email] rate limit check failed", error);
-		return true;
+		return false;
 	}
 }
 
-export async function checkHandleRateLimit(
-	request: Request,
-	handle?: string,
-): Promise<boolean> {
-	const key = `${getClientIp(request)}:${handle ?? "unknown"}`;
+export async function checkHandleRateLimit(request: Request): Promise<boolean> {
+	const key = getClientIp(request);
 
 	try {
 		const result = await handleCheckRateLimit.limit(key);
 		return result.success;
 	} catch (error) {
 		console.error("[register-email] handle rate limit check failed", error);
-		return true;
+		return false;
 	}
 }

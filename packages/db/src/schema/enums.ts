@@ -37,6 +37,10 @@ export const integrationProviderValues = [
 export const integrationProviderEnum = z.enum(integrationProviderValues);
 export type IntegrationProvider = z.infer<typeof integrationProviderEnum>;
 
+export const profileGenderValues = ["male", "female"] as const;
+export const profileGenderEnum = z.enum(profileGenderValues);
+export type ProfileGender = z.infer<typeof profileGenderEnum>;
+
 export const deviceTypeValues = ["desktop", "mobile", "web"] as const;
 export const deviceTypeEnum = z.enum(deviceTypeValues);
 export type DeviceType = z.infer<typeof deviceTypeEnum>;
