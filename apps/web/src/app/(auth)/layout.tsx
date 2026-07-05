@@ -19,8 +19,16 @@ export default async function AuthLayout({
 	}
 
 	return (
-		<div className="relative flex min-h-screen flex-col">
-			<header className="container mx-auto px-6 py-6">
+		<div className="dark relative isolate flex min-h-screen flex-col overflow-hidden bg-[#0a0705] text-foreground">
+			<div
+				aria-hidden
+				className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_50%_18%,rgba(210,86,17,0.28),transparent_34%),radial-gradient(circle_at_18%_82%,rgba(240,121,42,0.13),transparent_30%),linear-gradient(180deg,#140d07_0%,#0a0705_54%,#050403_100%)]"
+			/>
+			<div
+				aria-hidden
+				className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,0.045)_42%,transparent_70%)]"
+			/>
+			<header className="container relative z-10 mx-auto px-6 py-6">
 				<a href={env.NEXT_PUBLIC_MARKETING_URL}>
 					<Image
 						src="/rox-logo-light.png"
@@ -31,7 +39,7 @@ export default async function AuthLayout({
 					/>
 				</a>
 			</header>
-			<main className="flex flex-1 items-center justify-center">
+			<main className="relative z-10 flex flex-1 items-center justify-center px-6 py-12">
 				{children}
 			</main>
 		</div>

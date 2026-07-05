@@ -799,6 +799,20 @@
       "when": 1782438578113,
       "tag": "0113_add_onboarding_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1783205018412,
+      "tag": "0114_add_registration_profile_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1783213537134,
+      "tag": "0115_add_registration_profile_gender_enum",
+      "breakpoints": true
     }
   ]
 }

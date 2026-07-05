@@ -12,7 +12,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { users } from "./auth";
-import { registrationProviderValues } from "./enums";
+import { profileGenderValues, registrationProviderValues } from "./enums";
 
 // Which provider a user originally registered through (ROX-522). Backed by
 // `enums.ts` so the Zod enum and pgEnum stay in lockstep.
@@ -20,6 +20,8 @@ export const registrationProvider = pgEnum(
 	"registration_provider",
 	registrationProviderValues,
 );
+
+export const profileGender = pgEnum("profile_gender", profileGenderValues);
 
 export const userProfiles = pgTable(
 	"user_profiles",
@@ -51,6 +53,8 @@ export const userProfiles = pgTable(
 		location: text("location"),
 		websiteUrl: text("website_url"),
 		contactEmail: text("contact_email"),
+		birthDate: date("birth_date"),
+		gender: profileGender("gender"),
 		telegram: text("telegram"),
 		max: text("max"),
 		wechat: text("wechat"),
